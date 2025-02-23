@@ -1,0 +1,36 @@
+tables:
+    - name: accounts
+      columns:
+      - name: id
+        type: Int
+        filterable: true
+      - name: currency
+        type: String
+      - name: balance
+        type: Float
+    - name: deposits
+      columns:
+        - name: id
+          type: ID
+        - name: amount
+          type: Float
+          filterable: true
+        - name: account_id
+          type: Int
+          filterable: true
+        - name: state
+          type: String
+          filterable: true
+relations:
+  - type: many_to_one
+    table: deposits
+    name: account
+    ref_table: accounts
+    column: account_id
+    ref_column: id
+  - type: one_to_many
+    table: accounts
+    name: deposits
+    ref_table: deposits
+    column: id
+    ref_column: account_id
