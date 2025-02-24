@@ -15,11 +15,13 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
 
-public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter, Map<String, Class<?>> typeMap) implements RowMapper<T> {
+public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter,
+                                 Map<String, Class<?>> typeMap) implements RowMapper<T> {
     public static <T> NestedRowMapper<T> newInstance(
             Class<T> mappedClass, @Nullable ConversionService conversionService) {
         return newInstance(mappedClass, conversionService, Map.of());
     }
+
     public static <T> NestedRowMapper<T> newInstance(
             Class<T> mappedClass, @Nullable ConversionService conversionService, Map<String, Class<?>> typeMap) {
         BeanWrapperImpl tc = new BeanWrapperImpl();
@@ -30,7 +32,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
     @Override
     public T mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
         Map<String, Object> mapOfColumnValues = extractColumnValues(rs);
-        return map(typeConverter, mappedClass, mapOfColumnValues, typeMap);
+        return map(typeConverter, mappedClass, mapOfColumnValues, typeMap, "");
     }
 
     private Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
@@ -52,17 +54,17 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
      * otherwise, a default instance is created and its properties are set via a BeanWrapper.
      * </p>
      */
-    static <T> T map(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap) {
+    static <T> T map(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
         if (!mappedClass.isRecord()) {
             // For traditional classes, instantiate and then set properties.
-            return mapToClass(tc, mappedClass, map, typeMap);
+            return mapToClass(tc, mappedClass, map, typeMap, prefix);
         } else {
             // For records, use the canonical constructor.
-            return mapToRecord(tc, mappedClass, map, typeMap);
+            return mapToRecord(tc, mappedClass, map, typeMap, prefix);
         }
     }
 
-    static <T> T mapToClass(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap) {
+    static <T> T mapToClass(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
         T instance = BeanUtils.instantiateClass(mappedClass);
         BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(instance);
         for (PropertyDescriptor pd : BeanUtils.getPropertyDescriptors(mappedClass)) {
@@ -71,9 +73,9 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
                 Class<?> propertyType = typeMap.get(propertyName);
                 Object value;
                 if (propertyType != null) {
-                    value = map(tc, propertyType, map, typeMap);
+                    value = map(tc, propertyType, map, typeMap, appendToPrefix(prefix, propertyName));
                 } else {
-                    value = resolvePropertyValue(tc, map, propertyName, pd.getPropertyType(), typeMap);
+                    value = resolvePropertyValue(tc, map, propertyName, pd.getPropertyType(), typeMap, prefix);
                 }
                 if (value != null) {
                     wrapper.setPropertyValue(propertyName, value);
@@ -83,7 +85,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
         return instance;
     }
 
-    static <T> T mapToRecord(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap) {
+    static <T> T mapToRecord(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
         Constructor<T> constructor = BeanUtils.getResolvableConstructor(mappedClass);
         String[] parameterNames = BeanUtils.getParameterNames(constructor);
         int paramCount = constructor.getParameterCount();
@@ -93,12 +95,22 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
             String parameterName = parameterNames[i];
             Class<?> typeFromMap = typeMap.get(parameterName);
             if (typeFromMap != null) {
-                args[i] = map(tc, typeFromMap, map, typeMap);
+                args[i] = map(tc, typeFromMap, map, typeMap, appendToPrefix(prefix, parameterName));
                 continue;
             }
-            args[i] = resolvePropertyValue(tc, map, parameterName, paramTypes[i], typeMap);
+            args[i] = resolvePropertyValue(tc, map, appendToPrefix(prefix, parameterName), paramTypes[i], typeMap, prefix);
         }
         return BeanUtils.instantiateClass(constructor, args);
+    }
+
+    private static String appendToPrefix(String prefix, String parameterName) {
+        StringBuilder prefixBuilder = new StringBuilder(prefix);
+        if (prefixBuilder.isEmpty()) {
+            prefixBuilder = new StringBuilder(parameterName);
+        } else {
+            prefixBuilder.append("_").append(parameterName);
+        }
+        return prefixBuilder.toString();
     }
 
     /**
@@ -113,7 +125,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
      * @return the converted value or {@code null} if no matching value is found
      */
     static Object resolvePropertyValue(TypeConverter tc, Map<String, Object> map,
-                                       String propertyName, Class<?> propertyType, Map<String, Class<?>> typeMap) {
+                                       String propertyName, Class<?> propertyType, Map<String, Class<?>> typeMap, String pathPrefix) {
 
         // Try direct property name.
         if (map.containsKey(propertyName)) {
@@ -139,7 +151,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
             }
         }
         if (!nested.isEmpty()) {
-            return map(tc, propertyType, nested, typeMap);
+            return map(tc, propertyType, nested, typeMap, pathPrefix);
         }
         return null;
     }

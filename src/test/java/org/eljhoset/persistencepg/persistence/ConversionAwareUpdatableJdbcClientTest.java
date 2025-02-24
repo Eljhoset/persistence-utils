@@ -24,8 +24,8 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         record Registered(LocalDateTime registeredAt, String registeredBy) implements DepositState { }
         record Approved(LocalDateTime approvedAt, String approvedBy) implements DepositState { }
         interface RejectionReason { }
-        record Other(String rejectionReasonDescription) implements RejectionReason{}
-        record Id(Long rejectionReasonId) implements RejectionReason{}
+        record Other(String description) implements RejectionReason{}
+        record Id(Long id) implements RejectionReason{}
         record RejectedDeposit(RejectionReason rejectionReason, LocalDateTime rejectedAt, String rejectedBy) implements DepositState { }
         record CancelledDeposit(Integer cancellationReasonId, LocalDateTime cancelledAt, String cancelledBy) implements DepositState { }
         record ConfirmedDeposit(LocalDateTime confirmedAt, String confirmedBy) implements DepositState { }
@@ -50,20 +50,20 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                                     state,
                                     amount as amount_value,
                                     currency as amount_currency,
-                                    registered_at,
-                                    registered_by,
-                                    approved_at,
-                                    approved_by,
-                                    rejected_at,
-                                    rejected_by,
-                                    rejection_reason_id,
-                                    rejection_reason_other as rejection_reason_description,
+                                    registered_at as state_registered_at,
+                                    registered_by as state_registered_by,
+                                    approved_at as state_approved_at,
+                                    approved_by as state_approved_by,
+                                    rejected_at as state_rejected_at,
+                                    rejected_by as state_rejected_by,
+                                    rejection_reason_id as state_rejection_reason_id,
+                                    rejection_reason_other as state_rejection_reason_description,
                                     rejection_reason_other is not null as is_other,
-                                    cancelled_at,
-                                    cancelled_by,
-                                    cancellation_reason_id,
-                                    confirmed_at,
-                                    confirmed_by
+                                    cancelled_at as state_cancelled_at,
+                                    cancelled_by as state_cancelled_by,
+                                    cancellation_reason_id as state_cancellation_reason_id,
+                                    confirmed_at as state_confirmed_at,
+                                    confirmed_by as state_confirmed_by
                                 from
                                     deposits
                                 where
@@ -130,7 +130,7 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                     assertThat(it.amount()).isEqualTo(amount);
                     assertThat(it.state()).isInstanceOfSatisfying(RejectedDeposit.class, rejectedDeposit ->
                             assertThat(rejectedDeposit.rejectionReason()).isInstanceOfSatisfying(Other.class, other ->
-                                    assertThat(other.rejectionReasonDescription()).isEqualTo("Insufficient funds")));
+                                    assertThat(other.description()).isEqualTo("Insufficient funds")));
                 });
 
         jdbcClient.update("deposits")
@@ -152,7 +152,7 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                     assertThat(it.amount()).isEqualTo(amount);
                     assertThat(it.state()).isInstanceOfSatisfying(RejectedDeposit.class, rejectedDeposit ->
                             assertThat(rejectedDeposit.rejectionReason()).isInstanceOfSatisfying(Id.class, rejectionId ->
-                                    assertThat(rejectionId.rejectionReasonId()).isEqualTo(1)));
+                                    assertThat(rejectionId.id()).isEqualTo(1)));
                 });
 
         jdbcClient.update("deposits")
