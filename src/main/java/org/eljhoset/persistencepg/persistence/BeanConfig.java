@@ -18,9 +18,9 @@ public class BeanConfig {
 
     @PostConstruct
     public void init() {
-        configurableConversionService.addConverter(Account.State.class, String.class, Account.State::name);
-        configurableConversionService.addConverter(String.class, Account.State.class, Account.State::valueOf);
-        configurableConversionService.addConverter(Account.Balance.class, Map.class, balance -> Map.of(
+        configurableConversionService.addConverter(State.class, String.class, State::name);
+        configurableConversionService.addConverter(String.class, State.class, State::valueOf);
+        configurableConversionService.addConverter(Balance.class, Map.class, balance -> Map.of(
                 "balance", balance.value(),
                 "currency", balance.currency()
         ));

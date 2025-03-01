@@ -1,8 +1,9 @@
 package org.eljhoset.persistencepg.persistence;
 
 import org.eljhoset.persistencepg.AbstractIT;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
@@ -13,7 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+
 
 class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
     @Test
@@ -24,10 +26,12 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         record Registered(LocalDateTime registeredAt, String registeredBy) implements DepositState { }
         record Approved(LocalDateTime approvedAt, String approvedBy) implements DepositState { }
         interface RejectionReason { }
-        record Other(String description) implements RejectionReason{}
-        record Id(Long id) implements RejectionReason{}
-        record RejectedDeposit(RejectionReason rejectionReason, LocalDateTime rejectedAt, String rejectedBy) implements DepositState { }
-        record CancelledDeposit(Integer cancellationReasonId, LocalDateTime cancelledAt, String cancelledBy) implements DepositState { }
+        record Other(String description) implements RejectionReason { }
+        record Id(Long id) implements RejectionReason { }
+        record RejectedDeposit(RejectionReason rejectionReason, LocalDateTime rejectedAt,
+                               String rejectedBy) implements DepositState { }
+        record CancelledDeposit(Integer cancellationReasonId, LocalDateTime cancelledAt,
+                                String cancelledBy) implements DepositState { }
         record ConfirmedDeposit(LocalDateTime confirmedAt, String confirmedBy) implements DepositState { }
 
         Amount amount = new Amount(BigDecimal.TEN, Currency.getInstance("USD"));
@@ -76,7 +80,7 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                         .when("REJECTED", RejectedDeposit.class)
                         .when("CANCELLED", CancelledDeposit.class)
                         .when("CONFIRMED", ConfirmedDeposit.class)
-                        .<RejectionReason>columnDiscriminator("rejectionReason","is_other")
+                        .<RejectionReason>columnDiscriminator("rejectionReason", "is_other")
                         .when(true, Other.class)
                         .when(false, Id.class)
                         .query(Deposit.class)
@@ -202,8 +206,10 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         record Deposit(Long accountId, Amount amount, DepositState state) { }
         record Registered(LocalDateTime registeredAt, String registeredBy) implements DepositState { }
         record Approved(LocalDateTime approvedAt, String approvedBy) implements DepositState { }
-        record RejectedDeposit(Integer rejectionReasonId, LocalDateTime rejectedAt, String rejectedBy) implements DepositState { }
-        record CancelledDeposit(Integer cancellationReasonId, LocalDateTime cancelledAt, String cancelledBy) implements DepositState { }
+        record RejectedDeposit(Integer rejectionReasonId, LocalDateTime rejectedAt,
+                               String rejectedBy) implements DepositState { }
+        record CancelledDeposit(Integer cancellationReasonId, LocalDateTime cancelledAt,
+                                String cancelledBy) implements DepositState { }
         record ConfirmedDeposit(LocalDateTime confirmedAt, String confirmedBy) implements DepositState { }
 
         Amount amount = new Amount(BigDecimal.TEN, Currency.getInstance("USD"));
@@ -245,11 +251,11 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                                 """)
                         .param("id", depositId)
                         .<DepositState>columnDiscriminator("state", "state")
-                            .when("REGISTERED", Registered.class)
-                            .when("APPROVED", Approved.class)
-                            .when("REJECTED", RejectedDeposit.class)
-                            .when("CANCELLED", CancelledDeposit.class)
-                            .when("CONFIRMED", ConfirmedDeposit.class)
+                        .when("REGISTERED", Registered.class)
+                        .when("APPROVED", Approved.class)
+                        .when("REJECTED", RejectedDeposit.class)
+                        .when("CANCELLED", CancelledDeposit.class)
+                        .when("CONFIRMED", ConfirmedDeposit.class)
                         .query(Deposit.class)
                         .optional();
 
@@ -349,7 +355,9 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         }
         interface Deposit {
             Long accountId();
+
             DepositState state();
+
             BigDecimal amount();
         }
         record RegisteredDeposit(Long accountId, BigDecimal amount, LocalDateTime registeredAt,
@@ -374,7 +382,8 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
             }
         }
 
-        record CancelledDeposit(Long accountId, BigDecimal amount, Integer cancellationReasonId, LocalDateTime cancelledAt,
+        record CancelledDeposit(Long accountId, BigDecimal amount, Integer cancellationReasonId,
+                                LocalDateTime cancelledAt,
                                 String cancelledBy) implements Deposit {
             @Override
             public DepositState state() {
@@ -503,82 +512,62 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
     }
 
     @Test
-    void jdbcPartialUpdate() {
-        Account.Balance balance = new Account.Balance(BigDecimal.valueOf(1000), Currency.getInstance("USD"));
-        KeyHolder keyHolder = new GeneratedKeyHolder();
+    void pagination() {
+        jdbcClient.sql("delete from accounts").update();
+        record Account(Long id, BigDecimal balance, String currency, String state) { }
         jdbcClient.insert("accounts")
-                .compositeParam(balance)
-                .param("state", Account.State.ACTIVE)
-                .execute(keyHolder, "id");
-        var id = keyHolder.getKey();
-        Optional<Account> optionalAccount = jdbcClient.sql("""
-                        SELECT
-                            id, balance as balance_value, currency as balance_currency, state
-                        FROM
-                            accounts
-                        WHERE id = :id
-                        """)
-                .param("id", id)
-                .query(Account.class)
-                .optional();
-        assertThat(optionalAccount)
-                .isPresent()
-                .hasValueSatisfying(it -> {
-                    assertThat(it.getBalance()).isEqualTo(balance);
-                    assertThat(it.getState()).isEqualTo(Account.State.ACTIVE);
-                });
-
-        jdbcClient.update("accounts")
-                .param("state", Account.State.CLOSED)
-                .where("id = :id", Map.of("id", id))
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "CAD")
+                .param("state", "ACTIVE")
+                .execute();
+        jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "USD")
+                .param("state", "ACTIVE")
+                .execute();
+        jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "USD")
+                .param("state", "ACTIVE")
                 .execute();
 
-        optionalAccount = jdbcClient.sql("""
-                        SELECT
-                            id, balance as balance_value, currency as balance_currency, state
-                        FROM
-                            accounts
-                        WHERE id = :id
-                        """)
-                .param("id", id)
-                .query(Account.class)
-                .optional();
+        jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "USD")
+                .param("state", "DISABLED")
+                .execute();
 
-        assertThat(optionalAccount)
-                .isPresent()
-                .hasValueSatisfying(it -> {
-                    assertThat(it.getBalance()).isEqualTo(balance);
-                    assertThat(it.getState()).isEqualTo(Account.State.CLOSED);
-                });
+        String sql = "select * from accounts";
+        PageRequest pageRequest = PageRequest.of(0, 2);
+        var page = jdbcClient.sql(sql)
+                .query(Account.class, pageRequest);
 
-    }
-    @Disabled
-    @Test
-    void jpaUpdate() {
-        Account.Balance balance = new Account.Balance(BigDecimal.valueOf(1000), Currency.getInstance("USD"));
+        assertThat(page).hasSize(2);
+        assertThat(page.getTotalElements()).isEqualTo(4);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(page.getNumber()).isZero();
+        assertThat(page.getSize()).isEqualTo(2);
 
-        Account account = new Account();
-        account.setBalance(balance);
-        account.setState(Account.State.ACTIVE);
-        account = accountRepository.save(account);
+        page = jdbcClient.sql("select * from accounts where state = :state")
+                .param("state", "ACTIVE")
+                .query(Account.class, pageRequest);
 
-        assertThat(accountRepository.findById(account.getId()))
-                .isPresent()
-                .hasValueSatisfying(it -> {
-                    assertThat(it.getBalance()).isEqualTo(balance);
-                    assertThat(it.getState()).isEqualTo(Account.State.ACTIVE);
-                });
+        assertThat(page).hasSize(2);
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(page.getNumber()).isZero();
+        assertThat(page.getSize()).isEqualTo(2);
 
-        Account accountWithStateUpdated = new Account();
-        accountWithStateUpdated.setId(account.getId());
-        accountWithStateUpdated.setState(Account.State.CLOSED);
-        accountRepository.save(accountWithStateUpdated);
+        pageRequest = PageRequest.of(1, 2, Sort.by(Sort.Order.desc("currency")));
+        jdbcClient.sql("select * from accounts where state = :state")
+                .param("state", "ACTIVE")
+                .query(Account.class, pageRequest);
 
-        assertThat(accountRepository.findById(account.getId()))
-                .isPresent()
-                .hasValueSatisfying(it -> {
-                    assertThat(it.getBalance()).isEqualTo(balance);
-                    assertThat(it.getState()).isEqualTo(Account.State.CLOSED);
-                });
+        assertThat(page).hasSize(2);
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(page.getNumber()).isZero();
+        assertThat(page.getSize()).isEqualTo(2);
+        assertThat(page.getContent()).first().satisfies(it -> assertThat(it.currency()).isEqualTo("CAD"));
     }
 }

@@ -15,7 +15,7 @@ public class ConversionAwareUpdatableJdbcClient implements UpdatableJdbcClient {
     private final ConversionService conversionService;
     @Override
     public @NonNull ConversionAwareStatementSpec sql(@NonNull String sql) {
-        return new ConversionAwareStatementSpec(delegate.sql(sql), conversionService);
+        return new ConversionAwareStatementSpec(sql, delegate, conversionService);
     }
 
     public @NonNull ConversionAwareJdbcClientInsertSpec insert(@NonNull String tableName) {

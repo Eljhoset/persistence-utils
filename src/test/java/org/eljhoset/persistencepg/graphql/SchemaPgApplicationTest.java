@@ -1,7 +1,7 @@
 package org.eljhoset.persistencepg.graphql;
 
 import org.eljhoset.persistencepg.AbstractIT;
-import org.eljhoset.persistencepg.persistence.Account;
+import org.eljhoset.persistencepg.persistence.State;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.ParameterizedTypeReference;
@@ -39,12 +39,12 @@ class SchemaPgApplicationTest extends AbstractIT {
         jdbcClient.insert("accounts")
                 .param("balance", new BigDecimal("100.00"))
                 .param("currency", "USD")
-                .param("state", Account.State.ACTIVE)
+                .param("state", State.ACTIVE)
                 .execute();
         jdbcClient.insert("accounts")
                 .param("balance", new BigDecimal("200.00"))
                 .param("currency", "USD")
-                .param("state", Account.State.ACTIVE)
+                .param("state", State.ACTIVE)
                 .execute();
         jdbcClient.insert("deposits")
                 .param("amount", new BigDecimal("100.00"))
