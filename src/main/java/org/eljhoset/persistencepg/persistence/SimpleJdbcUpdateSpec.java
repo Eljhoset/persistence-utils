@@ -26,31 +26,34 @@ class SimpleJdbcUpdateSpec implements UpdatableJdbcClient.UpdateSpec {
         return this;
     }
 
+    class SimpleExecuteStep implements UpdatableJdbcClient.UpdateSpec.ExecuteStep {
+        public int execute() {
+            if (params.isEmpty()) {
+                throw new IllegalStateException("No non-ID columns were set for update. "
+                                                + "At least one non-ID column must be present in 'params'.");
+            }
+            if (whereColumns.isEmpty()) {
+                throw new IllegalStateException("No ID columns found");
+            }
+            String setClause = params.keySet().stream()
+                    .map(col -> "%s = :%s".formatted(col, col))
+                    .collect(Collectors.joining(", "));
+
+            String sql = "UPDATE %s SET %s WHERE %s".formatted(tableName, setClause, whereClause);
+
+            var statementSpec = jdbcClient.sql(sql);
+
+            params.forEach(statementSpec::param);
+            whereColumns.forEach(statementSpec::param);
+            return statementSpec.update();
+        }
+    }
+
     @Override
-    public UpdatableJdbcClient.UpdateSpec where(String where, Map<String, Object> whereColumns) {
+    public UpdatableJdbcClient.UpdateSpec.ExecuteStep where(String where, Map<String, Object> whereColumns) {
         this.whereClause = where;
         this.whereColumns = whereColumns;
-        return this;
-    }
-
-    public int execute() {
-        if (params.isEmpty()) {
-            throw new IllegalStateException("No non-ID columns were set for update. "
-                                            + "At least one non-ID column must be present in 'params'.");
-        }
-        if (whereColumns.isEmpty()) {
-            throw new IllegalStateException("No ID columns found");
-        }
-        String setClause = params.keySet().stream()
-                .map(col -> "%s = :%s".formatted(col, col))
-                .collect(Collectors.joining(", "));
-
-        String sql = "UPDATE %s SET %s WHERE %s".formatted(tableName, setClause, whereClause);
-
-        var statementSpec = jdbcClient.sql(sql);
-
-        params.forEach(statementSpec::param);
-        whereColumns.forEach(statementSpec::param);
-        return statementSpec.update();
+        return new SimpleExecuteStep();
     }
 }
+

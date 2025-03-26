@@ -768,4 +768,57 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         assertThat(page.getSize()).isEqualTo(2);
         assertThat(page.getContent()).first().satisfies(it -> assertThat(it.currency()).isEqualTo("CAD"));
     }
+
+    @Test
+    void batchUpdate() {
+        jdbcClient.sql("delete from accounts").update();
+        record Account(Long id, BigDecimal balance, String currency, String state) { }
+        var canadian = jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "CAD")
+                .param("state", "ACTIVE")
+                .execute("id").map(KeyHolder::getKey);
+
+        var usDollars = jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "USD")
+                .param("state", "ACTIVE")
+                .execute("id").map(KeyHolder::getKey);
+
+        var usDollarsTwo = jdbcClient.insert("accounts")
+                .param("balance", BigDecimal.TEN)
+                .param("currency", "USD")
+                .param("state", "ACTIVE")
+                .execute("id").map(KeyHolder::getKey);
+
+        jdbcClient.batchUpdate("accounts")
+                .where("id = :id", "id")
+                    .param("balance", BigDecimal.ZERO)
+                    .param("state", "ACTIVE")
+                    .param("id", canadian)
+                .also()
+                    .param("balance", BigDecimal.TEN)
+                    .param("state", "DISABLED")
+                    .param("id", usDollars)
+                .execute();
+
+        var canadianAccount = jdbcClient.sql("select * from accounts where id = :id")
+                .param("id", canadian)
+                .query(Account.class)
+                .optional();
+
+        var usDollarsAccount = jdbcClient.sql("select * from accounts where id = :id")
+                .param("id", usDollars)
+                .query(Account.class)
+                .optional();
+
+        assertThat(canadianAccount)
+                .isPresent()
+                .hasValueSatisfying(it -> assertThat(it.balance()).isZero());
+
+        assertThat(usDollarsAccount)
+                .isPresent()
+                .hasValueSatisfying(it -> assertThat(it.balance()).isEqualTo(BigDecimal.TEN));
+
+    }
 }

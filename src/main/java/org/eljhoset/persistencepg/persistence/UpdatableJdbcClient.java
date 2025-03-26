@@ -9,6 +9,7 @@ import java.util.function.Function;
 
 interface UpdatableJdbcClient extends JdbcClient {
     UpdateSpec update(String tableName);
+    BatchUpdateSpec.WhereStep batchUpdate(String tableName);
 
     InsertSpec insert(String tableName);
 
@@ -22,8 +23,23 @@ interface UpdatableJdbcClient extends JdbcClient {
             params.forEach(this::param);
             return this;
         }
-        int execute();
-        UpdateSpec where(String where, Map<String, Object> whereColumns);
+        ExecuteStep where(String where, Map<String, Object> whereColumns);
+        interface ExecuteStep {
+            int execute();
+        }
+    }
+
+    interface BatchUpdateSpec {
+
+        interface WhereStep {
+            ParamStep where(String where, String ... idColumns);
+        }
+        interface ParamStep {
+            ParamStep param(String name, Object value);
+            ParamStep setNull(String name);
+            ParamStep also();
+            int[] execute();
+        }
     }
 
     interface InsertSpec {

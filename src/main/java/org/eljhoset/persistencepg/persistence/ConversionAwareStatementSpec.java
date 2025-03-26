@@ -13,36 +13,28 @@ import org.springframework.jdbc.core.SingleColumnRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongSupplier;
-import java.util.stream.StreamSupport;
 
 public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     private final String sql;
     private final JdbcClient jdbcClient;
     private final @Delegate JdbcClient.StatementSpec delegate;
     private final ConversionService conversionService;
+    private final ConversionOps conversionOps;
     private final Map<String, Object> params = new HashMap<>();
-
-    private static final Class<?>[] SCALAR_TYPES = {
-            Number.class, Boolean.class, String.class, Character.class, LocalDateTime.class
-    };
 
     public ConversionAwareStatementSpec(String sql, JdbcClient jdbcClient, ConversionService conversionService) {
         this.sql = sql;
         this.jdbcClient = jdbcClient;
         this.conversionService = conversionService;
+        this.conversionOps = new ConversionOps(conversionService);
         this.delegate = jdbcClient.sql(sql);
     }
 
-    private static boolean isScalarType(Class<?> type) {
-        return type.isPrimitive()
-               || Arrays.stream(SCALAR_TYPES).anyMatch(type::isAssignableFrom);
-    }
     @Override
     public @NonNull ConversionAwareStatementSpec param(Object object){
         BeanWrapper beanWrapper = PropertyAccessorFactory.forBeanPropertyAccess(object);
@@ -55,7 +47,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     @Override
     public @NonNull ConversionAwareStatementSpec param(@NonNull String name, Object value) {
         if (value != null) {
-            value = checkAndConvert(value);
+            value = conversionOps.checkAndConvert(value);
         }
         delegate.param(name, value);
         params.put(name, value);
@@ -70,7 +62,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     }
 
     public <T> @NonNull JdbcClient.MappedQuerySpec<T> query(@NonNull Class<T> resultType) {
-        if (isScalarType(resultType)) {
+        if (ConversionOps.isScalarType(resultType)) {
             var singleColumnMapper = SingleColumnRowMapper.newInstance(resultType);
             return delegate.query(singleColumnMapper);
         } else {
@@ -106,35 +98,4 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         return PageableExecutionUtils.getPage(list, pageable, total);
     }
 
-    private Object checkAndConvert(Object value) {
-        if (value instanceof Iterable<?> iterable) {
-            return StreamSupport.stream(iterable.spliterator(), false)
-                    .map(element -> {
-                        if (element == null) return null;
-                        return convert(element);
-                    }).toList();
-        }
-        if (value.getClass().isArray()) {
-            Object[] array = (Object[]) value;
-            return Arrays.stream(array)
-                    .map(element -> {
-                        if (element == null) return null;
-                        return convert(element);
-                    }).toArray();
-        }
-        return convert(value);
-    }
-
-    private Object convert(Object value) {
-        Class<?> sourceType = value.getClass();
-        if (isScalarType(sourceType)) {
-            return value;
-        }
-        for (Class<?> scalarType : SCALAR_TYPES) {
-            if (conversionService.canConvert(sourceType, scalarType)) {
-                return conversionService.convert(value, scalarType);
-            }
-        }
-        return value;
-    }
 }

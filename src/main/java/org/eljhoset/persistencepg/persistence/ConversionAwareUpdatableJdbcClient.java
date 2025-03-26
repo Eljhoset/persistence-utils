@@ -3,16 +3,28 @@ package org.eljhoset.persistencepg.persistence;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.Delegate;
 import org.springframework.core.convert.ConversionService;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
+import javax.sql.DataSource;
 import java.util.Map;
 
-@RequiredArgsConstructor
+
 public class ConversionAwareUpdatableJdbcClient implements UpdatableJdbcClient {
     @Delegate
     private final JdbcClient delegate;
+    private final DataSource dataSource;
     private final ConversionService conversionService;
+    private final ConversionOps conversionOps;
+
+    public ConversionAwareUpdatableJdbcClient(DataSource dataSource, ConversionService conversionService) {
+        this.delegate = JdbcClient.create(dataSource);
+        this.conversionService = conversionService;
+        this.dataSource = dataSource;
+        this.conversionOps = new ConversionOps(conversionService);
+    }
+
     @Override
     public @NonNull ConversionAwareStatementSpec sql(@NonNull String sql) {
         return new ConversionAwareStatementSpec(sql, delegate, conversionService);
@@ -25,6 +37,12 @@ public class ConversionAwareUpdatableJdbcClient implements UpdatableJdbcClient {
 
     public @NonNull UpdateSpec update(@NonNull String tableName) {
         return new SimpleJdbcUpdateSpec(tableName, this);
+    }
+
+    @Override
+    public BatchUpdateSpec.WhereStep batchUpdate(String tableName) {
+        BatchJdbcUpdateSpec batchJdbcUpdateSpec = new BatchJdbcUpdateSpec(tableName, conversionOps, new NamedParameterJdbcTemplate(dataSource));
+        return batchJdbcUpdateSpec.new BatchUpdateSpecBuilder();
     }
 
     @RequiredArgsConstructor

@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.ConfigurableConversionService;
-import org.springframework.jdbc.core.simple.JdbcClient;
 
 import javax.sql.DataSource;
 import java.util.Map;
@@ -27,7 +26,6 @@ public class BeanConfig {
     }
     @Bean
     public ConversionAwareUpdatableJdbcClient conversionAwareJdbcClient(DataSource dataSource, ConversionService conversionService) {
-        JdbcClient jdbcClient = JdbcClient.create(dataSource);
-        return new ConversionAwareUpdatableJdbcClient(jdbcClient, conversionService);
+        return new ConversionAwareUpdatableJdbcClient(dataSource, conversionService);
     }
 }
