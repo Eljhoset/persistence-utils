@@ -62,10 +62,10 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         return this;
     }
 
-    public <R> PolymorphicSpec<R> columnDiscriminator(String discriminatorColumn) {
-        return new PolymorphicSpec<>(conversionService, discriminatorColumn, this);
+    public <R> PolymorphicFieldSpec.PolymorphicSpec<R> columnDiscriminator(String discriminatorColumn) {
+        return PolymorphicFieldSpec.newInstance(delegate, conversionService, discriminatorColumn);
     }
-    public <R> PolymorphicFieldSpec.PolymorphicFieldSpecBuilder<R> columnDiscriminator(String field, String discriminatorColumn) {
+    public <R> PolymorphicFieldSpec.PolymorphicFieldSpecQueryBuilder<R> columnDiscriminator(String field, String discriminatorColumn) {
         return PolymorphicFieldSpec.newInstance(delegate, conversionService, field, discriminatorColumn);
     }
 
