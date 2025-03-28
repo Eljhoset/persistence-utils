@@ -25,6 +25,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     private final @Delegate JdbcClient.StatementSpec delegate;
     private final ConversionService conversionService;
     private final ConversionOps conversionOps;
+    private final PolymorphicFieldSpec polymorphicFieldSpec;
     private final Map<String, Object> params = new HashMap<>();
 
     public ConversionAwareStatementSpec(String sql, JdbcClient jdbcClient, ConversionService conversionService) {
@@ -33,6 +34,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         this.conversionService = conversionService;
         this.conversionOps = new ConversionOps(conversionService);
         this.delegate = jdbcClient.sql(sql);
+        this.polymorphicFieldSpec = new PolymorphicFieldSpec(delegate, conversionService);
     }
 
     @Override
@@ -55,10 +57,10 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     }
 
     public <R> PolymorphicFieldSpec.PolymorphicSpec<R> columnDiscriminator(String discriminatorColumn) {
-        return PolymorphicFieldSpec.newInstance(delegate, conversionService, discriminatorColumn);
+        return polymorphicFieldSpec.new PolymorphicSpec<>(discriminatorColumn);
     }
     public <R> PolymorphicFieldSpec.PolymorphicFieldSpecQueryBuilder<R> columnDiscriminator(String field, String discriminatorColumn) {
-        return PolymorphicFieldSpec.newInstance(delegate, conversionService, field, discriminatorColumn);
+        return polymorphicFieldSpec.new PolymorphicFieldSpecQueryBuilder<>(field, discriminatorColumn, polymorphicFieldSpec::addField);
     }
 
     public <T> @NonNull JdbcClient.MappedQuerySpec<T> query(@NonNull Class<T> resultType) {

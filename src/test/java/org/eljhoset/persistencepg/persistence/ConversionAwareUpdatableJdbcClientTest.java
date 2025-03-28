@@ -19,13 +19,113 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
     @Test
+    void polymorphicNested() {
+        record Amount(BigDecimal value, Currency currency) { }
+        interface DepositState { }
+        interface ConfirmedDeposit extends DepositState { }
+        record CompleteConfirmation(LocalDateTime confirmedAt, String confirmedBy) implements ConfirmedDeposit { }
+        record IncompleteConfirmation(LocalDateTime confirmedAt, String confirmedBy) implements ConfirmedDeposit { }
+        record Registered(LocalDateTime registeredAt, String registeredBy) implements DepositState { }
+        record Deposit(Long accountId, Amount amount, DepositState state) { }
+
+        Amount amount = new Amount(BigDecimal.TEN, Currency.getInstance("USD"));
+        var keyHolder = new GeneratedKeyHolder();
+        jdbcClient.insert("deposits")
+                .param("account_id", 1L)
+                .param(amount, it -> Map.of("amount", it.value(), "currency", it.currency()))
+                .param("registered_at", LocalDateTime.now())
+                .param("registered_by", "admin")
+                .param("state", "REGISTERED")
+                .execute(keyHolder, "id");
+
+        Function<Number, Optional<Deposit>> depositSupplier = depositId -> jdbcClient.sql("""
+                    select
+                        id,
+                        account_id,
+                        state,
+                        registered_at as state_registered_at,
+                        registered_by as state_registered_by,
+                        confirmed_at as state_confirmed_at,
+                        confirmed_by as state_confirmed_by,
+                        amount as amount_value,
+                        currency as amount_currency,
+                        is_confirmed
+                    from deposits
+                    where id = :id
+                    """)
+                .param("id", depositId)
+                .<DepositState>columnDiscriminator("state", "state")
+                    .when("REGISTERED", Registered.class)
+                    .when("CONFIRMED", ConfirmedDeposit.class)
+                .<ConfirmedDeposit>nestedColumnDiscriminator("state", "is_confirmed")
+                    .when(true, CompleteConfirmation.class)
+                    .when(false, IncompleteConfirmation.class)
+                .query(Deposit.class)
+                .optional();
+
+        var id = keyHolder.getKey();
+        Optional<Deposit> optionalDeposit = depositSupplier.apply(id);
+
+        assertThat(optionalDeposit)
+                .isPresent()
+                .hasValueSatisfying(it -> {
+                    System.out.println(it);
+                    assertThat(it.accountId()).isEqualTo(1L);
+                    assertThat(it.amount()).isEqualTo(amount);
+                    assertThat(it.state()).isInstanceOfSatisfying(Registered.class, registered -> {
+                        assertThat(registered.registeredBy()).isEqualTo("admin");
+                        assertThat(registered.registeredAt()).isNotNull();
+                    });
+                });
+
+        jdbcClient.update("deposits")
+                .param("state", "CONFIRMED")
+                .param("confirmed_at", LocalDateTime.now())
+                .param("confirmed_by", "admin")
+                .where("id = :id", Map.of("id", id))
+                .execute();
+
+        optionalDeposit = depositSupplier.apply(id);
+        assertThat(optionalDeposit)
+                .isPresent()
+                .hasValueSatisfying(it -> {
+                    System.out.println(it);
+                    assertThat(it.accountId()).isEqualTo(1L);
+                    assertThat(it.amount()).isEqualTo(amount);
+                    assertThat(it.state()).isInstanceOfSatisfying(IncompleteConfirmation.class, incompleteConfirmation -> {
+                        assertThat(incompleteConfirmation.confirmedBy()).isEqualTo("admin");
+                        assertThat(incompleteConfirmation.confirmedAt()).isNotNull();
+                    });
+                });
+
+        jdbcClient.update("deposits")
+                .param("is_confirmed", true)
+                .where("id = :id", Map.of("id", id))
+                .execute();
+
+        optionalDeposit = depositSupplier.apply(id);
+        assertThat(optionalDeposit)
+                .isPresent()
+                .hasValueSatisfying(it -> {
+                    System.out.println(it);
+                    assertThat(it.accountId()).isEqualTo(1L);
+                    assertThat(it.amount()).isEqualTo(amount);
+                    assertThat(it.state()).isInstanceOfSatisfying(CompleteConfirmation.class, completeConfirmation -> {
+                        assertThat(completeConfirmation.confirmedBy()).isEqualTo("admin");
+                        assertThat(completeConfirmation.confirmedAt()).isNotNull();
+                    });
+                });
+    }
+    @Test
     void polymorphicModelAndField() {
         enum DepositState {
             REGISTERED, APPROVED, REJECTED, CANCELLED, CONFIRMED
         }
         interface Deposit {
             Long accountId();
+
             DepositState state();
+
             BigDecimal amount();
         }
         record RegisteredDeposit(Long accountId, BigDecimal amount, LocalDateTime registeredAt,
@@ -45,7 +145,8 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         interface RejectionReason { }
         record Other(String description) implements RejectionReason { }
         record Id(Long id) implements RejectionReason { }
-        record RejectedDeposit(Long accountId, BigDecimal amount, RejectionReason rejectionReason, LocalDateTime rejectedAt,
+        record RejectedDeposit(Long accountId, BigDecimal amount, RejectionReason rejectionReason,
+                               LocalDateTime rejectedAt,
                                String rejectedBy) implements Deposit {
             @Override
             public DepositState state() {
@@ -216,6 +317,7 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                     assertThat(it.state()).isEqualTo(DepositState.CONFIRMED);
                 });
     }
+
     @Test
     void polymorphicFieldNested() {
         interface DepositState { }
@@ -793,13 +895,13 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
 
         jdbcClient.batchUpdate("accounts")
                 .where("id = :id", "id")
-                    .param("balance", BigDecimal.ZERO)
-                    .param("state", "ACTIVE")
-                    .param("id", canadian)
+                .param("balance", BigDecimal.ZERO)
+                .param("state", "ACTIVE")
+                .param("id", canadian)
                 .also()
-                    .param("balance", BigDecimal.TEN)
-                    .param("state", "DISABLED")
-                    .param("id", usDollars)
+                .param("balance", BigDecimal.TEN)
+                .param("state", "DISABLED")
+                .param("id", usDollars)
                 .execute();
 
         var canadianAccount = jdbcClient.sql("select * from accounts where id = :id")
@@ -821,4 +923,39 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
                 .hasValueSatisfying(it -> assertThat(it.balance()).isEqualTo(BigDecimal.TEN));
 
     }
+
+//    public static void main(String[] args) {
+//        record Row(Map<String, Object> tuples) { }
+//        record Update(List<Row> rows, String... idColumns) {
+//            public Map<String, Map<String, Object>> sql() {
+//                List<String> list = Arrays.asList(idColumns);
+//                AtomicInteger counter = new AtomicInteger(0);
+//                return rows.stream().map(row -> {
+//                    int index = counter.incrementAndGet();
+//                    StringBuilder sql = new StringBuilder("UPDATE users SET ");
+//                    row.tuples().keySet().stream()
+//                            .filter(key -> !list.contains(key))
+//                            .forEach(key -> {
+//                                sql.append(key).append(" = :").append(key).append(index).append(", ");
+//                            });
+//                    sql.delete(sql.length() - 2, sql.length());
+//                    sql.append(" WHERE ");
+//                    String whereClause = list.stream().map(key -> key + " = :" + key + index)
+//                            .collect(Collectors.joining(" AND "));
+//                    sql.append(whereClause);
+//                    Map<String, Object> indexedMap = row.tuples().entrySet().stream()
+//                            .map(entry -> Map.entry(entry.getKey() + index, entry.getValue()))
+//                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+//                    return Map.entry(sql.toString(), indexedMap);
+//                }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+//            }
+//        }
+//        List<Row> rows = List.of(
+//                new Row(Map.of("id", 1, "name", "John")),
+//                new Row(Map.of("id", 2, "name", "Jane")),
+//                new Row(Map.of("id", 3, "name", "Alice"))
+//        );
+//        new Update(rows, "id").sql()
+//                .forEach((sql, params) -> System.out.println(sql + " " + params));
+//    }
 }

@@ -24,5 +24,6 @@ create table deposits (
     cancellation_reason_id int,
     cancellation_reason_other text,
     confirmed_at timestamp,
-    confirmed_by text
+    confirmed_by text,
+    is_confirmed boolean default false
 );

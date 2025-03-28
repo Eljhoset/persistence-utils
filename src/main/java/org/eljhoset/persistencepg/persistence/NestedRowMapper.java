@@ -16,23 +16,23 @@ import java.util.HashMap;
 import java.util.Map;
 
 public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter,
-                                 Map<String, Class<?>> typeMap) implements RowMapper<T> {
+                                 TypeResolver typeResolver) implements RowMapper<T> {
     public static <T> NestedRowMapper<T> newInstance(
             Class<T> mappedClass, @Nullable ConversionService conversionService) {
-        return newInstance(mappedClass, conversionService, Map.of());
+        return newInstance(mappedClass, conversionService, TypeResolver.empty());
     }
 
     public static <T> NestedRowMapper<T> newInstance(
-            Class<T> mappedClass, @Nullable ConversionService conversionService, Map<String, Class<?>> typeMap) {
+            Class<T> mappedClass, @Nullable ConversionService conversionService, TypeResolver typeResolver) {
         BeanWrapperImpl tc = new BeanWrapperImpl();
         tc.setConversionService(conversionService);
-        return new NestedRowMapper<>(mappedClass, tc, typeMap);
+        return new NestedRowMapper<>(mappedClass, tc, typeResolver);
     }
 
     @Override
     public T mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
         Map<String, Object> mapOfColumnValues = extractColumnValues(rs);
-        return map(typeConverter, mappedClass, mapOfColumnValues, typeMap, "");
+        return map(typeConverter, mappedClass, mapOfColumnValues, "");
     }
 
     private Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
@@ -54,28 +54,28 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
      * otherwise, a default instance is created and its properties are set via a BeanWrapper.
      * </p>
      */
-    static <T> T map(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
+    <R> R map(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
         if (!mappedClass.isRecord()) {
             // For traditional classes, instantiate and then set properties.
-            return mapToClass(tc, mappedClass, map, typeMap, prefix);
+            return mapToClass(tc, mappedClass, map, prefix);
         } else {
             // For records, use the canonical constructor.
-            return mapToRecord(tc, mappedClass, map, typeMap, prefix);
+            return mapToRecord(tc, mappedClass, map, prefix);
         }
     }
 
-    static <T> T mapToClass(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
-        T instance = BeanUtils.instantiateClass(mappedClass);
+    <R> R mapToClass(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
+        R instance = BeanUtils.instantiateClass(mappedClass);
         BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(instance);
         for (PropertyDescriptor pd : BeanUtils.getPropertyDescriptors(mappedClass)) {
             if (pd.getWriteMethod() != null) {
                 String propertyName = pd.getName();
-                Class<?> propertyType = typeMap.get(propertyName);
+                Class<?> propertyType = getTypeResolverByTypeByProperty(propertyName);
                 Object value;
                 if (propertyType != null) {
-                    value = map(tc, propertyType, map, typeMap, appendToPrefix(prefix, propertyName));
+                    value = map(tc, propertyType, map, appendToPrefix(prefix, propertyName));
                 } else {
-                    value = resolvePropertyValue(tc, map, propertyName, pd.getPropertyType(), typeMap, prefix);
+                    value = resolvePropertyValue(tc, map, propertyName, pd.getPropertyType(), prefix);
                 }
                 if (value != null) {
                     wrapper.setPropertyValue(propertyName, value);
@@ -85,20 +85,32 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
         return instance;
     }
 
-    static <T> T mapToRecord(TypeConverter tc, Class<T> mappedClass, Map<String, Object> map, Map<String, Class<?>> typeMap, String prefix) {
-        Constructor<T> constructor = BeanUtils.getResolvableConstructor(mappedClass);
+    private Class<?> getTypeResolverByTypeByProperty(String propertyName) {
+        Class<?> type = typeResolver.getByTypeByProperty(propertyName);
+        if (type == null) {
+            return null;
+        }
+        Class<?> typeByClass = typeResolver.getByTypeByClass(type);
+        if (typeByClass != null) {
+            return typeByClass;
+        }
+        return type;
+    }
+
+    <R> R mapToRecord(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
+        Constructor<R> constructor = BeanUtils.getResolvableConstructor(mappedClass);
         String[] parameterNames = BeanUtils.getParameterNames(constructor);
         int paramCount = constructor.getParameterCount();
         Object[] args = new Object[paramCount];
         Class<?>[] paramTypes = constructor.getParameterTypes();
         for (int i = 0; i < paramCount; i++) {
             String parameterName = parameterNames[i];
-            Class<?> typeFromMap = typeMap.get(parameterName);
+            Class<?> typeFromMap = getTypeResolverByTypeByProperty(parameterName);
             if (typeFromMap != null) {
-                args[i] = map(tc, typeFromMap, map, typeMap, appendToPrefix(prefix, parameterName));
+                args[i] = map(tc, typeFromMap, map, appendToPrefix(prefix, parameterName));
                 continue;
             }
-            args[i] = resolvePropertyValue(tc, map, appendToPrefix(prefix, parameterName), paramTypes[i], typeMap, prefix);
+            args[i] = resolvePropertyValue(tc, map, appendToPrefix(prefix, parameterName), paramTypes[i], prefix);
         }
         return BeanUtils.instantiateClass(constructor, args);
     }
@@ -124,8 +136,8 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
      * @param propertyType the type to convert the value to
      * @return the converted value or {@code null} if no matching value is found
      */
-    static Object resolvePropertyValue(TypeConverter tc, Map<String, Object> map,
-                                       String propertyName, Class<?> propertyType, Map<String, Class<?>> typeMap, String pathPrefix) {
+    Object resolvePropertyValue(TypeConverter tc, Map<String, Object> map,
+                                String propertyName, Class<?> propertyType, String pathPrefix) {
 
         // Try direct property name.
         if (map.containsKey(propertyName)) {
@@ -151,7 +163,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
             }
         }
         if (!nested.isEmpty()) {
-            return map(tc, propertyType, nested, typeMap, pathPrefix);
+            return map(tc, propertyType, nested, pathPrefix);
         }
         return null;
     }
