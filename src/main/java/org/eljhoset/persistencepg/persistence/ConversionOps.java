@@ -5,6 +5,7 @@ import org.springframework.core.convert.ConversionService;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.StreamSupport;
 
 @RequiredArgsConstructor
@@ -20,20 +21,25 @@ class ConversionOps {
     }
 
     public Object checkAndConvert(Object value) {
+        if (value == null) {
+            return null;
+        }
         if (value instanceof Iterable<?> iterable) {
-            return StreamSupport.stream(iterable.spliterator(), false)
+            List<Object> list = StreamSupport.stream(iterable.spliterator(), false)
                     .map(element -> {
                         if (element == null) return null;
                         return convert(element);
                     }).toList();
+            return list.isEmpty() ? null : list;
         }
         if (value.getClass().isArray()) {
             Object[] array = (Object[]) value;
-            return Arrays.stream(array)
+            Object[] objects = Arrays.stream(array)
                     .map(element -> {
                         if (element == null) return null;
                         return convert(element);
                     }).toArray();
+            return objects.length == 0 ? null : objects;
         }
         return convert(value);
     }

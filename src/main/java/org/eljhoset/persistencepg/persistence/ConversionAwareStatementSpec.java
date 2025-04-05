@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SingleColumnRowMapper;
+import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
@@ -46,11 +47,12 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         });
         return this;
     }
+    public @NonNull ConversionAwareStatementSpec param(@NonNull String name, int type, Object value) {
+        return param(name, new SqlParameterValue(type, value));
+    }
     @Override
     public @NonNull ConversionAwareStatementSpec param(@NonNull String name, Object value) {
-        if (value != null) {
-            value = conversionOps.checkAndConvert(value);
-        }
+        value = conversionOps.checkAndConvert(value);
         delegate.param(name, value);
         params.put(name, value);
         return this;
