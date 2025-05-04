@@ -1,5 +1,6 @@
 package org.eljhoset.persistencepg.persistence;
 
+import lombok.With;
 import org.springframework.beans.*;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,7 +17,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter,
-                                 TypeResolver typeResolver) implements RowMapper<T> {
+                                 TypeResolver typeResolver, @With String prefix) implements RowMapper<T> {
     public static <T> NestedRowMapper<T> newInstance(
             Class<T> mappedClass, @Nullable ConversionService conversionService) {
         return newInstance(mappedClass, conversionService, TypeResolver.empty());
@@ -26,16 +27,20 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
             Class<T> mappedClass, @Nullable ConversionService conversionService, TypeResolver typeResolver) {
         BeanWrapperImpl tc = new BeanWrapperImpl();
         tc.setConversionService(conversionService);
-        return new NestedRowMapper<>(mappedClass, tc, typeResolver);
+        return new NestedRowMapper<>(mappedClass, tc, typeResolver, "");
     }
 
     @Override
     public T mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
         Map<String, Object> mapOfColumnValues = extractColumnValues(rs);
-        return map(typeConverter, mappedClass, mapOfColumnValues, "");
+        return mapRow(mapOfColumnValues);
     }
 
-    private Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
+    public T mapRow(Map<String, Object> row) {
+        return map(typeConverter, mappedClass, row, prefix);
+    }
+
+    public static Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
         Map<String, Object> mapOfColumnValues = new HashMap<>();
         ResultSetMetaData rsmd = rs.getMetaData();
         int columnCount = rsmd.getColumnCount();

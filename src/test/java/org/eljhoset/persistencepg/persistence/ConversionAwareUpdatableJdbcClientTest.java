@@ -2,17 +2,25 @@ package org.eljhoset.persistencepg.persistence;
 
 import org.eljhoset.persistencepg.AbstractIT;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
+import java.beans.IntrospectionException;
+import java.beans.PropertyDescriptor;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Currency;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -924,6 +932,34 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
 
     }
 
+    @Test
+    void masterDetail() {
+        jdbcClient.insert("accounts")
+                .param("balance", new BigDecimal("200.00"))
+                .param("currency", "USD")
+                .param("state", State.ACTIVE)
+                .execute();
+        jdbcClient.insert("deposits")
+                .param("amount", new BigDecimal("100.00"))
+                .param("account_id", 1)
+                .param("state", "REGISTERED")
+                .param("registered_at", LocalDateTime.now())
+                .param("registered_by", "admin")
+                .execute();
+
+        record Deposit(BigDecimal amount) {}
+        record Account(State state, Collection<Deposit> deposits) {}
+
+        jdbcClient.sql("""
+                select a.id, a.state, d.amount as deposit_amount
+                from accounts a
+                join deposits d on d.account_id = a.id
+                """)
+                .withMasterDetailRef("deposits", "id")
+                .query(Account.class)
+                .list();
+    }
+
 //    public static void main(String[] args) {
 //        record Row(Map<String, Object> tuples) { }
 //        record Update(List<Row> rows, String... idColumns) {
@@ -958,4 +994,96 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
 //        new Update(rows, "id").sql()
 //                .forEach((sql, params) -> System.out.println(sql + " " + params));
 //    }
+public static void main(String[] args) {
+    record Detail(BigDecimal quantity, BigDecimal amount) {}
+    record Master(Integer id, Collection<Detail> details) {}
+
+    List<Map<String, Object>> rows = List.of(
+            Map.of("id", 1, "detail_amount", new BigDecimal(100), "detail_quantity", new BigDecimal(1)),
+            Map.of("id", 1, "detail_amount", new BigDecimal(200), "detail_quantity", new BigDecimal(2)),
+            Map.of("id", 2, "detail_amount", new BigDecimal(300), "detail_quantity", new BigDecimal(3))
+    );
+
+    record Mapper<T>(String prefix, Class<T> mappedClass) implements Function<Map<String, Object>, T> {
+        @Override
+        public T apply(Map<String, Object> rows) {
+            Constructor<T> constructor = BeanUtils.getResolvableConstructor(mappedClass);
+            String[] parameterNames = BeanUtils.getParameterNames(constructor);
+            int paramCount = constructor.getParameterCount();
+            Object[] args = new Object[paramCount];
+            for (int i = 0; i < paramCount; i++) {
+                String parameterName = parameterNames[i];
+                var base = prefix.isEmpty() ? prefix: prefix + "_";
+                args[i] = rows.get(base + parameterName);
+            }
+            return BeanUtils.instantiateClass(constructor, args);
+        }
+    }
+
+    UnaryOperator<String> singularize = s -> s.endsWith("s") && s.length() > 1
+            ? s.substring(0, s.length()-1)
+            : s;
+
+    Function<Method, ? extends Class<?>> extractGenericType = getter -> {
+        Type rt = getter.getGenericReturnType();
+        if (rt instanceof ParameterizedType p) {
+            Type arg = p.getActualTypeArguments()[0];
+            if (arg instanceof Class<?>) {
+                return (Class<?>) arg;
+            }
+        }
+        throw new IllegalStateException("Cannot resolve generic type of " + getter);
+    };
+    record Path(String from, String to) { }
+    record MapperRef(Path path, Mapper<?> mapper) { }
+    Function<Class <?>, Collection<MapperRef>> getMappers = type -> {
+        Mapper<?> mapper = new Mapper<>("", type);
+        var children = Arrays.stream(type.getRecordComponents())
+                .filter(rc -> Collection.class.isAssignableFrom(rc.getType()))
+                .map(rc -> {
+                    try {
+                        PropertyDescriptor pd = new PropertyDescriptor(rc.getName(), type, rc.getName(), null);
+                        String prefix = singularize.apply(rc.getName());
+                        Mapper<?> child = new Mapper<>(prefix, extractGenericType.apply(pd.getReadMethod()));
+                        return new MapperRef(new Path("", prefix), child);
+                    } catch (IntrospectionException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+        return Stream.concat(Stream.of(new MapperRef(new Path("", ""), mapper)), children)
+                .toList();
+    };
+
+    Collection<MapperRef> mappers = getMappers.apply(Master.class);
+    record MappedRow(Path path, Map<String, Object> row, Object mapped) { }
+    Map<String, String> masterDetailRefMap = Map.of("detail", "id");
+    record Id(String prefix, Object value) { }
+
+    Map<Id, Object> refMap = new HashMap<>();
+    List<MappedRow> mapped = rows.stream()
+            .flatMap(row-> mappers.stream().map(mapperRef-> {
+                Path path = mapperRef.path;
+                Mapper<?> mapper = mapperRef.mapper;
+                Object apply = mapper.apply(row);
+                masterDetailRefMap.forEach((_, value)-> {
+                    Object ref = row.get(value);
+                    Id from = new Id(path.from, ref);
+                    Id to = new Id(path.to, ref);
+                    refMap.putIfAbsent(from, apply);
+                    refMap.putIfAbsent(to, apply);
+                });
+                return new MappedRow(path, row, apply);
+            })).toList();
+
+    Map<Object, List<Object>> groupedMappings = mapped.stream().<Map.Entry<Object, Object>>mapMulti((mappedRow, consumer) -> {
+        String prefix = masterDetailRefMap.get(mappedRow.path.to);
+        if (prefix != null) {
+            Object object = mappedRow.row.get(prefix);
+            Object ref = refMap.get(new Id(mappedRow.path.from, object));
+            consumer.accept(Map.entry(ref, mappedRow.mapped));
+        }
+    }).collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+
+    System.out.println(groupedMappings);
+}
 }
