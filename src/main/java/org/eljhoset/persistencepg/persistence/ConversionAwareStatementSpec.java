@@ -8,7 +8,6 @@ import org.springframework.core.convert.ConversionService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SingleColumnRowMapper;
 import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -79,9 +78,8 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             var nestedRowMapperStream = buildMappers(resultType, Path.empty(), null)
                     .toList();
             var extractor = new MultiLevelExtractor<T>(masterDetailRefMap, nestedRowMapperStream);
-            Collection<T> data = delegate.query(extractor);
-            RowMapper<T> rowMapper = NestedRowMapper.newInstance(resultType, this.conversionService);
-            return delegate.query(rowMapper);
+            final List<T> data = delegate.query(extractor);
+            return new PrePopulatedMappedQuerySpec<>(data);
         }
     }
     public <T> @NonNull Page<T> query(@NonNull Class<T> resultType, Pageable pageable) {
@@ -159,5 +157,16 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             return buildMappers(extractGenericType(pd.getReadMethod()), new Path(prefix, newPrefix), pd);
         });
         return Stream.concat(Stream.of(new RowMapperRef(path, type, propertyDescriptor, mapper)), children);
+    }
+
+    private record PrePopulatedMappedQuerySpec<T>(List<T> data) implements JdbcClient.MappedQuerySpec<T> {
+        @Override
+        public @NonNull Stream<T> stream() {
+            return data.stream();
+        }
+        @Override
+        public @NonNull List<T> list() {
+            return data;
+        }
     }
 }
