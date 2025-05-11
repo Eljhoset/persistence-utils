@@ -955,11 +955,11 @@ class ConversionAwareUpdatableJdbcClientTest extends AbstractIT {
         record Account(State state, Collection<Deposit> deposits) { }
 
         List<Account> list = jdbcClient.sql("""
-                        select a.id, a.state, d.amount as deposit_amount
+                        select a.id, a.state, d.amount as deposits_amount
                         from accounts a
                         join deposits d on d.account_id = a.id
                         """)
-                .withMasterDetailRef("deposits", "id")
+                .group("deposits").by("id")
                 .query(Account.class)
                 .list();
 

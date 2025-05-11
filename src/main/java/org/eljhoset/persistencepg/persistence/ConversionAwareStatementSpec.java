@@ -1,8 +1,10 @@
 package org.eljhoset.persistencepg.persistence;
 
+import lombok.RequiredArgsConstructor;
 import lombok.experimental.Delegate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapper;
+import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.data.domain.Page;
@@ -13,12 +15,10 @@ import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
-import java.beans.IntrospectionException;
-import java.beans.PropertyDescriptor;
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 
@@ -30,7 +30,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     private final ConversionOps conversionOps;
     private final PolymorphicFieldSpec polymorphicFieldSpec;
     private final Map<String, Object> params = new HashMap<>();
-    private final Map<String, String> masterDetailRefMap = new HashMap<>();
+    private final Map<String, String> groupingRules = new HashMap<>();
 
     public ConversionAwareStatementSpec(String sql, JdbcClient jdbcClient, ConversionService conversionService) {
         this.sql = sql;
@@ -39,10 +39,6 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         this.conversionOps = new ConversionOps(conversionService);
         this.delegate = jdbcClient.sql(sql);
         this.polymorphicFieldSpec = new PolymorphicFieldSpec(delegate, conversionService);
-    }
-    public ConversionAwareStatementSpec withMasterDetailRef(String detailProperty, String masterRef) {
-        this.masterDetailRefMap.put(singularize(detailProperty), masterRef);
-        return this;
     }
     @Override
     public @NonNull ConversionAwareStatementSpec param(Object object){
@@ -75,9 +71,10 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             var singleColumnMapper = SingleColumnRowMapper.newInstance(resultType);
             return delegate.query(singleColumnMapper);
         } else {
-            var nestedRowMapperStream = buildMappers(resultType, Path.empty(), null)
-                    .toList();
-            var extractor = new MultiLevelExtractor<T>(masterDetailRefMap, nestedRowMapperStream);
+            BeanWrapperImpl tc = new BeanWrapperImpl();
+            tc.setConversionService(conversionService);
+            MapperTypeConverter converter = tc::convertIfNecessary;
+            var extractor = new MapperExtractor<T>(resultType, converter, TypeResolver.empty(), groupingRules);
             final List<T> data = delegate.query(extractor);
             return new PrePopulatedMappedQuerySpec<>(data);
         }
@@ -108,55 +105,9 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         List<T> list = listSpec.query(resultType).list();
         return PageableExecutionUtils.getPage(list, pageable, total);
     }
-    private static Collection<PropertyDescriptor> findCollectionProperties(Class<?> type) {
-        if (type.isRecord()) {
-            // for records, inspect the record components, not bean descriptors
-            return Arrays.stream(type.getRecordComponents())
-                    .filter(rc -> Collection.class.isAssignableFrom(rc.getType()))
-                    .map(rc -> {
-                        try {
-                            return new PropertyDescriptor(rc.getName(), type, rc.getName(),null);
-                        } catch (IntrospectionException e) {
-                            throw new IllegalStateException(
-                                    "Cannot create property descriptor for record component " + rc.getName(), e);
-                        }
-                    }).toList();
-        }
-        return Arrays.stream(BeanUtils.getPropertyDescriptors(type))
-                .filter(pd ->
-                        Collection.class.isAssignableFrom(pd.getPropertyType()) &&
-                        pd.getReadMethod()  != null &&
-                        pd.getWriteMethod() != null
-                ).toList();
-    }
-    private static Class<?> extractGenericType(Method getter) {
-        Type rt = getter.getGenericReturnType();
-        if (rt instanceof ParameterizedType p) {
-            Type arg = p.getActualTypeArguments()[0];
-            if (arg instanceof Class<?>) {
-                return (Class<?>) arg;
-            }
-        }
-        throw new IllegalStateException("Cannot resolve generic type of " + getter);
-    }
-    private static String singularize(String s) {
-        return s.endsWith("s") && s.length()>1
-                ? s.substring(0, s.length()-1)
-                : s;
-    }
-    private <U> Stream<RowMapperRef> buildMappers(Class<U> type, Path path, PropertyDescriptor propertyDescriptor) {
-        String prefix = path.to();
-        NestedRowMapper<U> mapper = NestedRowMapper
-                .newInstance(type, conversionService)
-                .withPrefix(prefix);
-        Collection<PropertyDescriptor> cols = findCollectionProperties(type);
 
-        var children = cols.stream().flatMap(pd -> {
-            String singularized = singularize(pd.getName());
-            String newPrefix = prefix.isEmpty() ? singularized : prefix+ "_" + singularized;
-            return buildMappers(extractGenericType(pd.getReadMethod()), new Path(prefix, newPrefix), pd);
-        });
-        return Stream.concat(Stream.of(new RowMapperRef(path, type, propertyDescriptor, mapper)), children);
+    public GroupingBuilder group(String property) {
+        return new GroupingBuilder(property, this);
     }
 
     private record PrePopulatedMappedQuerySpec<T>(List<T> data) implements JdbcClient.MappedQuerySpec<T> {
@@ -168,5 +119,16 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         public @NonNull List<T> list() {
             return data;
         }
+    }
+    @RequiredArgsConstructor
+    public class GroupingBuilder {
+        private final String property;
+        private final ConversionAwareStatementSpec statementSpec;
+
+        public ConversionAwareStatementSpec by(String field) {
+            groupingRules.put(property, field);
+            return statementSpec;
+        }
+
     }
 }

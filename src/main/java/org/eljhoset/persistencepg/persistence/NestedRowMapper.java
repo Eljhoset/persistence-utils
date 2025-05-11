@@ -1,19 +1,15 @@
 package org.eljhoset.persistencepg.persistence;
 
 import lombok.With;
-import org.springframework.beans.*;
+import org.springframework.beans.BeanWrapperImpl;
+import org.springframework.beans.TypeConverter;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.support.JdbcUtils;
 import org.springframework.lang.NonNull;
 import org.springframework.lang.Nullable;
 
-import java.beans.PropertyDescriptor;
-import java.lang.reflect.Constructor;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.HashMap;
 import java.util.Map;
 
 public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter,
@@ -32,144 +28,8 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
 
     @Override
     public T mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
-        Map<String, Object> mapOfColumnValues = extractColumnValues(rs);
-        return mapRow(mapOfColumnValues);
-    }
-
-    public T mapRow(Map<String, Object> row) {
-        return map(typeConverter, mappedClass, row, prefix);
-    }
-
-    public static Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
-        Map<String, Object> mapOfColumnValues = new HashMap<>();
-        ResultSetMetaData rsmd = rs.getMetaData();
-        int columnCount = rsmd.getColumnCount();
-        for (int i = 1; i <= columnCount; i++) {
-            String column = JdbcUtils.lookupColumnName(rsmd, i);
-            Object value = JdbcUtils.getResultSetValue(rs, i);
-            mapOfColumnValues.put(column, value);
-        }
-        return mapOfColumnValues;
-    }
-
-    /**
-     * Maps the given Map into an instance of the specified class.
-     * <p>
-     * If the target type is a record, the mapping is performed via its canonical constructor;
-     * otherwise, a default instance is created and its properties are set via a BeanWrapper.
-     * </p>
-     */
-    <R> R map(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
-        if (!mappedClass.isRecord()) {
-            // For traditional classes, instantiate and then set properties.
-            return mapToClass(tc, mappedClass, map, prefix);
-        } else {
-            // For records, use the canonical constructor.
-            return mapToRecord(tc, mappedClass, map, prefix);
-        }
-    }
-
-    <R> R mapToClass(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
-        R instance = BeanUtils.instantiateClass(mappedClass);
-        BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(instance);
-        for (PropertyDescriptor pd : BeanUtils.getPropertyDescriptors(mappedClass)) {
-            if (pd.getWriteMethod() != null) {
-                String propertyName = pd.getName();
-                Class<?> propertyType = getTypeResolverByTypeByProperty(propertyName);
-                Object value;
-                if (propertyType != null) {
-                    value = map(tc, propertyType, map, appendToPrefix(prefix, propertyName));
-                } else {
-                    value = resolvePropertyValue(tc, map, propertyName, pd.getPropertyType(), prefix);
-                }
-                if (value != null) {
-                    wrapper.setPropertyValue(propertyName, value);
-                }
-            }
-        }
-        return instance;
-    }
-
-    private Class<?> getTypeResolverByTypeByProperty(String propertyName) {
-        Class<?> type = typeResolver.getByTypeByProperty(propertyName);
-        if (type == null) {
-            return null;
-        }
-        Class<?> typeByClass = typeResolver.getByTypeByClass(type);
-        if (typeByClass != null) {
-            return typeByClass;
-        }
-        return type;
-    }
-
-    <R> R mapToRecord(TypeConverter tc, Class<R> mappedClass, Map<String, Object> map, String prefix) {
-        Constructor<R> constructor = BeanUtils.getResolvableConstructor(mappedClass);
-        String[] parameterNames = BeanUtils.getParameterNames(constructor);
-        int paramCount = constructor.getParameterCount();
-        Object[] args = new Object[paramCount];
-        Class<?>[] paramTypes = constructor.getParameterTypes();
-        for (int i = 0; i < paramCount; i++) {
-            String parameterName = parameterNames[i];
-            Class<?> typeFromMap = getTypeResolverByTypeByProperty(parameterName);
-            if (typeFromMap != null) {
-                args[i] = map(tc, typeFromMap, map, appendToPrefix(prefix, parameterName));
-                continue;
-            }
-            args[i] = resolvePropertyValue(tc, map, appendToPrefix(prefix, parameterName), paramTypes[i], prefix);
-        }
-        return BeanUtils.instantiateClass(constructor, args);
-    }
-
-    private static String appendToPrefix(String prefix, String parameterName) {
-        StringBuilder prefixBuilder = new StringBuilder(prefix);
-        if (prefixBuilder.isEmpty()) {
-            prefixBuilder = new StringBuilder(parameterName);
-        } else {
-            prefixBuilder.append("_").append(parameterName);
-        }
-        return prefixBuilder.toString();
-    }
-
-    /**
-     * Resolves a property value from the map by first checking for a direct value (using the given
-     * property name, its snake_case, and camelCase variants), and if none is found, looking for any
-     * nested keys that start with "propertyName_".
-     *
-     * @param tc           the TypeConverter to perform conversion
-     * @param map          the source map
-     * @param propertyName the name of the property to resolve
-     * @param propertyType the type to convert the value to
-     * @return the converted value or {@code null} if no matching value is found
-     */
-    Object resolvePropertyValue(TypeConverter tc, Map<String, Object> map,
-                                String propertyName, Class<?> propertyType, String pathPrefix) {
-
-        // Try direct property name.
-        if (map.containsKey(propertyName)) {
-            return tc.convertIfNecessary(map.get(propertyName), propertyType);
-        }
-        // Try snake_case version.
-        String snakeCase = JdbcUtils.convertPropertyNameToUnderscoreName(propertyName);
-        if (map.containsKey(snakeCase)) {
-            return tc.convertIfNecessary(map.get(snakeCase), propertyType);
-        }
-        // Try camelCase version.
-        String camelCase = JdbcUtils.convertUnderscoreNameToPropertyName(propertyName);
-        if (map.containsKey(camelCase)) {
-            return tc.convertIfNecessary(map.get(camelCase), propertyType);
-        }
-        // Look for nested properties (e.g. "account_balance_value" for property "account").
-        Map<String, Object> nested = new HashMap<>();
-        String prefix = propertyName + "_";
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            if (entry.getKey().startsWith(prefix)) {
-                // Remove the prefix.
-                nested.put(entry.getKey().substring(prefix.length()), entry.getValue());
-            }
-        }
-        if (!nested.isEmpty()) {
-            return map(tc, propertyType, nested, pathPrefix);
-        }
-        return null;
+        Map<String, Object> mapOfColumnValues = ResultSetUtils.extractColumnValues(rs);
+        MapperTypeConverter converter = typeConverter::convertIfNecessary;
+        return NestedMapper.newInstance(mappedClass, converter, typeResolver).map(mapOfColumnValues);
     }
 }
