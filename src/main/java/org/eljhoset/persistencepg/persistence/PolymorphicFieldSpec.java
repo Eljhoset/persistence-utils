@@ -21,7 +21,7 @@ public class PolymorphicFieldSpec {
     private final ConversionService conversionService;
     private final List<PolymorphicField<?>> fields = new ArrayList<>();
     private final List<PolymorphicField<?>> nestedFields = new ArrayList<>();
-
+    private final Map<String, String> groupingRules = new HashMap<>();
 
     public void addField(PolymorphicField<?> field){
         fields.add(field);
@@ -60,6 +60,10 @@ public class PolymorphicFieldSpec {
             }
         }
         return typeByTypeMap;
+    }
+
+    public GroupingBuilder<PolymorphicFieldSpec> group(String property) {
+        return new GroupingBuilder<>(property, groupingRules, this);
     }
 
     @RequiredArgsConstructor
@@ -118,6 +122,9 @@ public class PolymorphicFieldSpec {
             delegate.flush();
             return spec.query();
         }
+        public GroupingBuilder<PolymorphicFieldSpecBuilder> group(String property) {
+            return new GroupingBuilder<>(property, groupingRules, this);
+        }
     }
     public class PolymorphicFieldSpecQueryBuilder<T> {
         private final PolymorphicFieldSpecBuilderDelegate<T> delegate;
@@ -139,6 +146,9 @@ public class PolymorphicFieldSpec {
         public <R> @NonNull JdbcClient.MappedQuerySpec<R> query(@NonNull Class<R> resultType) {
             delegate.flush();
             return PolymorphicFieldSpec.this.query(resultType);
+        }
+        public GroupingBuilder<PolymorphicFieldSpecQueryBuilder> group(String property) {
+            return new GroupingBuilder<>(property, groupingRules, this);
         }
     }
     @RequiredArgsConstructor

@@ -1,6 +1,5 @@
 package org.eljhoset.persistencepg.persistence;
 
-import lombok.RequiredArgsConstructor;
 import lombok.experimental.Delegate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapper;
@@ -102,20 +101,8 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         return PageableExecutionUtils.getPage(list, pageable, total);
     }
 
-    public GroupingBuilder group(String property) {
-        return new GroupingBuilder(property, this);
-    }
-
-    @RequiredArgsConstructor
-    public class GroupingBuilder {
-        private final String property;
-        private final ConversionAwareStatementSpec statementSpec;
-
-        public ConversionAwareStatementSpec by(String field) {
-            groupingRules.put(property, field);
-            return statementSpec;
-        }
-
+    public GroupingBuilder<ConversionAwareStatementSpec> group(String property) {
+        return new GroupingBuilder<>(property, groupingRules, this);
     }
 
     private record MapperExtractor<T>(Class<T> mappedClass, ConversionService conversionService, Map<String, String> groupingRules) implements ResultSetExtractor<List<T>> {
