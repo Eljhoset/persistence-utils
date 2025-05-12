@@ -2,7 +2,8 @@ package org.eljhoset.persistencepg.persistence;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.convert.ConversionService;
-import org.springframework.jdbc.core.RowMapper;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
@@ -27,11 +28,9 @@ public class PolymorphicFieldSpec {
     }
 
     public <T> @NonNull JdbcClient.MappedQuerySpec<T> query(@NonNull Class<T> resultType) {
-        RowMapper<T> rowMapper = (rs, rowNum) -> {
-            TypeResolver typeResolver = getTypeResolver(rs);
-            return NestedRowMapper.newInstance(resultType, conversionService, typeResolver).mapRow(rs, rowNum);
-        };
-        return statementSpec.query(rowMapper);
+        var extractor = new PolymorphicFieldExtractor<>(resultType);
+        final List<T> data = statementSpec.query(extractor);
+        return new PrePopulatedMappedQuerySpec<>(data);
     }
 
     private TypeResolver getTypeResolver(ResultSet rs) throws SQLException {
@@ -75,15 +74,11 @@ public class PolymorphicFieldSpec {
         public <R> PolymorphicFieldSpecBuilder<T, R> columnDiscriminator(String field, String discriminatorColumn) {
             return new PolymorphicFieldSpecBuilder<>(this, field, discriminatorColumn, fields::add);
         }
+        @SuppressWarnings("unchecked")
         public @NonNull JdbcClient.MappedQuerySpec<T> query() {
-            RowMapper<T> rowMapper = (rs, rowNum) -> {
-                TypeResolver typeResolver = getTypeResolver(rs);
-                String discriminatorValue = rs.getString(discriminatorColumn);
-                Class<? extends T> type = discriminatorMapping.get(discriminatorValue);
-                RowMapper<? extends T> delegateRowMapper = NestedRowMapper.newInstance(type, conversionService, typeResolver);
-                return delegateRowMapper.mapRow(rs, rowNum);
-            };
-            return statementSpec.query(rowMapper);
+            var extractor = new PolymorphicExtractor<>(discriminatorColumn, discriminatorMapping);
+            var data = statementSpec.query(extractor);
+            return new PrePopulatedMappedQuerySpec<>((List<T>) data);
         }
     }
     @RequiredArgsConstructor
@@ -144,6 +139,52 @@ public class PolymorphicFieldSpec {
         public <R> @NonNull JdbcClient.MappedQuerySpec<R> query(@NonNull Class<R> resultType) {
             delegate.flush();
             return PolymorphicFieldSpec.this.query(resultType);
+        }
+    }
+    @RequiredArgsConstructor
+    private class PolymorphicFieldExtractor<T> implements ResultSetExtractor<List<T>> {
+        private final Class<T> resultType;
+        @Override
+        public List<T> extractData(@NonNull ResultSet rs) throws SQLException, DataAccessException {
+            Map<Integer, TypeResolver> typeResolvers = new HashMap<>();
+            var rows = new ArrayList<RowEntry>();
+            int index = 0;
+            while (rs.next()){
+                index++;
+                var typeResolver = getTypeResolver(rs);
+                typeResolvers.put(index, typeResolver);
+                var row = ResultSetUtils.extractColumnValues(index, rs);
+                rows.add(row);
+            }
+            var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, Map.of());
+            return delegate.extractData();
+        }
+    }
+    @RequiredArgsConstructor
+    private class PolymorphicExtractor<T> implements ResultSetExtractor<List<? extends T>> {
+        private final String discriminatorColumn;
+        private final Map<String, Class<? extends T>> discriminatorMapping;
+        @Override
+        public List<? extends T> extractData(@NonNull ResultSet rs) throws SQLException, DataAccessException {
+            Map<Integer, Class<? extends T>> types = new HashMap<>();
+            var rows = new ArrayList<RowEntry>();
+            Map<Integer, TypeResolver> typeResolvers = new HashMap<>();
+            int index = 0;
+            while (rs.next()){
+                index++;
+                var typeResolver = getTypeResolver(rs);
+                String discriminatorValue = rs.getString(discriminatorColumn);
+                Class<? extends T> type = discriminatorMapping.get(discriminatorValue);
+                var row = ResultSetUtils.extractColumnValues(index, rs);
+                types.put(index, type);
+                typeResolvers.put(index, typeResolver);
+                rows.add(row);
+            }
+            return rows.stream().flatMap(rowEntry -> {
+               var resultType = types.get(rowEntry.rowNumber());
+               var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, Map.of());
+               return delegate.extractData().stream();
+            }).toList();
         }
     }
 }

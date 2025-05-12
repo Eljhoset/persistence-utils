@@ -18,12 +18,12 @@ import java.util.List;
 import java.util.Map;
 
 public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConverter,
-                              TypeResolver typeResolver, @With String prefix) {
-    public static <T> NestedMapper<T> newInstance(Class<T> mappedClass, MapperTypeConverter typeConverter, TypeResolver typeResolver) {
-        return new NestedMapper<>(mappedClass, typeConverter, typeResolver, "");
+                              Map<Integer, TypeResolver> typeResolvers, @With String prefix) {
+    public static <T> NestedMapper<T> newInstance(Class<T> mappedClass, MapperTypeConverter typeConverter, Map<Integer, TypeResolver> typeResolvers) {
+        return new NestedMapper<>(mappedClass, typeConverter, typeResolvers, "");
     }
     public static <T> NestedMapper<T> newInstance(Class<T> mappedClass) {
-        return newInstance(mappedClass, MapperTypeConverter.noop(), TypeResolver.empty());
+        return newInstance(mappedClass, MapperTypeConverter.noop(), Map.of());
     }
     private static boolean isCollection(Class<?> type) {
         return Collection.class.isAssignableFrom(type);
@@ -67,7 +67,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         for (PropertyDescriptor pd : BeanUtils.getPropertyDescriptors(mappedClass)) {
             if (pd.getWriteMethod() != null) {
                 String propertyName = pd.getName();
-                Class<?> propertyType = getTypeResolverByTypeByProperty(propertyName);
+                Class<?> propertyType = getTypeResolverByTypeByProperty(map.rowNumber(), propertyName);
                 Object value;
                 if (propertyType != null) {
                     value = map(propertyType, map, appendToPrefix(prefix, propertyName));
@@ -82,7 +82,11 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         return instance;
     }
 
-    private Class<?> getTypeResolverByTypeByProperty(String propertyName) {
+    private Class<?> getTypeResolverByTypeByProperty(Integer rowNumber, String propertyName) {
+        var typeResolver = typeResolvers.get(rowNumber);
+        if (typeResolver == null) {
+            return null;
+        }
         Class<?> type = typeResolver.getByTypeByProperty(propertyName);
         if (type == null) {
             return null;
@@ -102,7 +106,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         Class<?>[] paramTypes = constructor.getParameterTypes();
         for (int i = 0; i < paramCount; i++) {
             String parameterName = parameterNames[i];
-            Class<?> typeFromMap = getTypeResolverByTypeByProperty(parameterName);
+            Class<?> typeFromMap = getTypeResolverByTypeByProperty(map.rowNumber(), parameterName);
             String propertyName = appendToPrefix(prefix, parameterName);
             if (typeFromMap != null) {
                 args[i] = map(typeFromMap, map, propertyName);

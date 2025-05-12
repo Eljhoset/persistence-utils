@@ -28,7 +28,7 @@ class NestedGrouper {
         // If there is no root rule, just return the rows unchanged
         if (rootOpt.isEmpty()) {
             return rows.stream()
-                    .map(entry -> new RowEntry(entry.rowNumber(), new HashMap<>(entry.values())))
+                    .map(entry -> new RowEntry(entry.rowNumber(), new HashMap<>(entry.row())))
                     .toList();
         }
         String rootName = rootOpt.get();
@@ -36,14 +36,14 @@ class NestedGrouper {
 
         // 2) Partition all rows by the root grouping column
         Map<Object, List<RowEntry>> rootBuckets = rows.stream()
-                .collect(Collectors.groupingBy(e -> e.values().get(rootProp)));
+                .collect(Collectors.groupingBy(e -> e.row().get(rootProp)));
 
         List<RowEntry> result = new ArrayList<>();
 
         // 3) For each root‐group:
         for (List<RowEntry> bucket : rootBuckets.values()) {
             RowEntry first = bucket.getFirst();
-            Map<String, Object> sample = first.values();
+            Map<String, Object> sample = first.row();
             Map<String, Object> rootMap = new HashMap<>();
 
             // 3a) copy every field not belonging to "details_" (or deeper) into the root map
@@ -86,7 +86,7 @@ class NestedGrouper {
                 .collect(Collectors.toSet());
 
         // 3) collect all the keys that belong just to this level
-        Set<String> myKeys = rows.getFirst().values().keySet().stream()
+        Set<String> myKeys = rows.getFirst().row().keySet().stream()
                 .filter(k -> k.startsWith(myPrefix))
                 .filter(k -> allDeeperPrefixes.stream().noneMatch(k::startsWith))
                 .collect(Collectors.toSet());
@@ -95,7 +95,7 @@ class NestedGrouper {
         Map<List<Object>, List<RowEntry>> buckets = rows.stream()
                 .collect(Collectors.groupingBy(entry ->
                         myKeys.stream().sorted()
-                                .map(key -> entry.values().get(key))
+                                .map(key -> entry.row().get(key))
                                 .toList()
                 ));
 
@@ -103,7 +103,7 @@ class NestedGrouper {
 
         for (List<RowEntry> bucket : buckets.values()) {
             RowEntry first = bucket.getFirst();
-            Map<String, Object> sample = first.values();
+            Map<String, Object> sample = first.row();
             Map<String, Object> map = new HashMap<>();
 
             // 4a) copy each of the level’s keys into this map

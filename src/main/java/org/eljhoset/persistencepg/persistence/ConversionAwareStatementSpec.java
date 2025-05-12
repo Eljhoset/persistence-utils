@@ -6,20 +6,20 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapper;
 import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.core.convert.ConversionService;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.support.PageableExecutionUtils;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.SingleColumnRowMapper;
 import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.lang.NonNull;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.*;
 import java.util.function.LongSupplier;
-import java.util.stream.Stream;
 
 public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
     private final String sql;
@@ -70,7 +70,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             var singleColumnMapper = SingleColumnRowMapper.newInstance(resultType);
             return delegate.query(singleColumnMapper);
         } else {
-            var extractor = MapperExtractor.newInstance(resultType, conversionService, groupingRules);
+            var extractor = new MapperExtractor<>(resultType, conversionService, groupingRules);
             final List<T> data = delegate.query(extractor);
             return new PrePopulatedMappedQuerySpec<>(data);
         }
@@ -106,16 +106,6 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
         return new GroupingBuilder(property, this);
     }
 
-    private record PrePopulatedMappedQuerySpec<T>(List<T> data) implements JdbcClient.MappedQuerySpec<T> {
-        @Override
-        public @NonNull Stream<T> stream() {
-            return data.stream();
-        }
-        @Override
-        public @NonNull List<T> list() {
-            return data;
-        }
-    }
     @RequiredArgsConstructor
     public class GroupingBuilder {
         private final String property;
@@ -126,5 +116,19 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             return statementSpec;
         }
 
+    }
+
+    private record MapperExtractor<T>(Class<T> mappedClass, ConversionService conversionService, Map<String, String> groupingRules) implements ResultSetExtractor<List<T>> {
+        @Override
+        public List<T> extractData(@NonNull ResultSet rs) throws DataAccessException, SQLException {
+            var rows = new ArrayList<RowEntry>();
+            int index = 0;
+            while (rs.next()){
+                var row = ResultSetUtils.extractColumnValues(index++, rs);
+                rows.add(row);
+            }
+            var delegate = new MapperExtractorDelegate<>(mappedClass, conversionService, rows, Map.of(), groupingRules);
+            return delegate.extractData();
+        }
     }
 }
