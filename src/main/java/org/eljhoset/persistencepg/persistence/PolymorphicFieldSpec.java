@@ -166,7 +166,7 @@ public class PolymorphicFieldSpec {
                 var row = ResultSetUtils.extractColumnValues(index, rs);
                 rows.add(row);
             }
-            var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, Map.of());
+            var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, groupingRules);
             return delegate.extractData();
         }
     }
@@ -192,7 +192,7 @@ public class PolymorphicFieldSpec {
             }
             return rows.stream().flatMap(rowEntry -> {
                var resultType = types.get(rowEntry.rowNumber());
-               var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, Map.of());
+               var delegate = new MapperExtractorDelegate<>(resultType, conversionService, rows, typeResolvers, groupingRules);
                return delegate.extractData().stream();
             }).toList();
         }
