@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.Delegate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapper;
-import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.data.domain.Page;
@@ -71,10 +70,7 @@ public class ConversionAwareStatementSpec implements JdbcClient.StatementSpec {
             var singleColumnMapper = SingleColumnRowMapper.newInstance(resultType);
             return delegate.query(singleColumnMapper);
         } else {
-            BeanWrapperImpl tc = new BeanWrapperImpl();
-            tc.setConversionService(conversionService);
-            MapperTypeConverter converter = tc::convertIfNecessary;
-            var extractor = new MapperExtractor<T>(resultType, converter, TypeResolver.empty(), groupingRules);
+            var extractor = MapperExtractor.newInstance(resultType, conversionService, groupingRules);
             final List<T> data = delegate.query(extractor);
             return new PrePopulatedMappedQuerySpec<>(data);
         }

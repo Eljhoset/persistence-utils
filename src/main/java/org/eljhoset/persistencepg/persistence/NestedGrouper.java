@@ -1,8 +1,11 @@
 package org.eljhoset.persistencepg.persistence;
 
+import lombok.experimental.UtilityClass;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
+@UtilityClass
 class NestedGrouper {
 
     /**
@@ -13,8 +16,8 @@ class NestedGrouper {
      * @param groupingRules Map of nestedListName→groupingColumn
      * @return A List of Maps with the nested lists applied
      */
-    public static List<Map<String, Object>> groupRows(
-            List<Map<String, Object>> rows,
+    public static List<RowEntry> groupRows(
+            List<RowEntry> rows,
             Map<String, String> groupingRules
     ) {
         // 1) Find the “root” grouping name (the one with no '_' in it)
@@ -24,39 +27,39 @@ class NestedGrouper {
 
         // If there is no root rule, just return the rows unchanged
         if (rootOpt.isEmpty()) {
-            return new ArrayList<>(rows);
+            return rows.stream()
+                    .map(entry -> new RowEntry(entry.rowNumber(), new HashMap<>(entry.values())))
+                    .toList();
         }
         String rootName = rootOpt.get();
         String rootProp = groupingRules.get(rootName);
 
         // 2) Partition all rows by the root grouping column
-        Map<Object, List<Map<String, Object>>> rootBuckets = rows.stream()
-                .collect(Collectors.groupingBy(r -> r.get(rootProp)));
+        Map<Object, List<RowEntry>> rootBuckets = rows.stream()
+                .collect(Collectors.groupingBy(e -> e.values().get(rootProp)));
 
-        List<Map<String, Object>> result = new ArrayList<>();
+        List<RowEntry> result = new ArrayList<>();
 
         // 3) For each root‐group:
-        for (List<Map<String, Object>> bucket : rootBuckets.values()) {
+        for (List<RowEntry> bucket : rootBuckets.values()) {
+            RowEntry first = bucket.getFirst();
+            Map<String, Object> sample = first.values();
             Map<String, Object> rootMap = new HashMap<>();
-            Map<String, Object> sample = bucket.getFirst();
 
             // 3a) copy every field not belonging to "details_" (or deeper) into the root map
-            for (Map.Entry<String, Object> e : sample.entrySet()) {
-                String key = e.getKey();
-                if (!key.startsWith(rootName + "_")) {
-                    rootMap.put(key, e.getValue());
-                }
-            }
+            sample.entrySet().stream()
+                    .filter(e -> !e.getKey().startsWith(rootName + "_"))
+                    .forEach(e -> rootMap.put(e.getKey(), e.getValue()));
 
             // 3b) build the "details" list
-            List<Map<String, Object>> detailsList = buildLevel(
+            List<RowEntry> detailsList = buildLevel(
                     bucket,                     // all rows for this root
                     rootName,                   // the list we’re building now
                     groupingRules
             );
 
             rootMap.put(rootName, detailsList);
-            result.add(rootMap);
+            result.add(new RowEntry(first.rowNumber(), rootMap));
         }
 
         return result;
@@ -65,8 +68,8 @@ class NestedGrouper {
     /**
      * Build one level of nesting (e.g. "details", then inside that "details_account_holders", etc.)
      */
-    private static List<Map<String, Object>> buildLevel(
-            List<Map<String, Object>> rows,
+    private static List<RowEntry> buildLevel(
+            List<RowEntry> rows,
             String levelName,
             Map<String, String> groupingRules
     ) {
@@ -83,38 +86,36 @@ class NestedGrouper {
                 .collect(Collectors.toSet());
 
         // 3) collect all the keys that belong just to this level
-        Set<String> myKeys = rows.getFirst().keySet().stream()
+        Set<String> myKeys = rows.getFirst().values().keySet().stream()
                 .filter(k -> k.startsWith(myPrefix))
                 .filter(k -> allDeeperPrefixes.stream().noneMatch(k::startsWith))
                 .collect(Collectors.toSet());
 
         // 4) group by the UNIQUE combination of those keys
-        Map<List<Object>, List<Map<String, Object>>> buckets = rows.stream()
-                .collect(Collectors.groupingBy(r ->
-                        myKeys.stream()
-                                .sorted()
-                                .map(r::get)
+        Map<List<Object>, List<RowEntry>> buckets = rows.stream()
+                .collect(Collectors.groupingBy(entry ->
+                        myKeys.stream().sorted()
+                                .map(key -> entry.values().get(key))
                                 .toList()
                 ));
 
-        List<Map<String, Object>> out = new ArrayList<>();
+        List<RowEntry> out = new ArrayList<>();
 
-        for (List<Map<String, Object>> bucket : buckets.values()) {
+        for (List<RowEntry> bucket : buckets.values()) {
+            RowEntry first = bucket.getFirst();
+            Map<String, Object> sample = first.values();
             Map<String, Object> map = new HashMap<>();
-            Map<String, Object> sample = bucket.getFirst();
 
             // 4a) copy each of the level’s keys into this map
-            myKeys.stream().sorted().forEach(k ->
-                    map.put(k, sample.get(k))
-            );
+            myKeys.stream().sorted().forEach(k -> map.put(k, sample.get(k)));
 
             // 4b) for each child rule, recurse
-            for (String childName : children) {
-                List<Map<String, Object>> childList = buildLevel(bucket, childName, groupingRules);
-                map.put(childName, childList);
+            for (String childKey : children) {
+                List<RowEntry> childList = buildLevel(bucket, childKey, groupingRules);
+                map.put(childKey, childList);
             }
 
-            out.add(map);
+            out.add(new RowEntry(first.rowNumber(), map));
         }
 
         return out;

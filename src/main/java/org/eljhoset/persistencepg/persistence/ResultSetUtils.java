@@ -11,7 +11,7 @@ import java.util.Map;
 
 @UtilityClass
 public class ResultSetUtils {
-    public static Map<String, Object> extractColumnValues(ResultSet rs) throws SQLException {
+    public static RowEntry extractColumnValues(int rowNumber, ResultSet rs) throws SQLException {
         Map<String, Object> mapOfColumnValues = new HashMap<>();
         ResultSetMetaData rsmd = rs.getMetaData();
         int columnCount = rsmd.getColumnCount();
@@ -20,6 +20,6 @@ public class ResultSetUtils {
             Object value = JdbcUtils.getResultSetValue(rs, i);
             mapOfColumnValues.put(column, value);
         }
-        return mapOfColumnValues;
+        return RowEntry.of(rowNumber, mapOfColumnValues);
     }
 }

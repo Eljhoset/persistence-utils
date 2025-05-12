@@ -40,7 +40,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         throw new IllegalStateException("Cannot resolve generic type of " + getter);
     }
 
-    public T map(Map<String, Object> row) {
+    public T map(RowEntry row) {
         return map(mappedClass, row, prefix);
     }
 
@@ -51,7 +51,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
      * otherwise, a default instance is created and its properties are set via a BeanWrapper.
      * </p>
      */
-    private <R> R map(Class<R> mappedClass, Map<String, Object> map, String prefix) {
+    private <R> R map(Class<R> mappedClass, RowEntry map, String prefix) {
         if (!mappedClass.isRecord()) {
             // For traditional classes, instantiate and then set properties.
             return mapToClass(mappedClass, map, prefix);
@@ -61,7 +61,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         }
     }
 
-    private <R> R mapToClass(Class<R> mappedClass, Map<String, Object> map, String prefix) {
+    private <R> R mapToClass(Class<R> mappedClass, RowEntry map, String prefix) {
         R instance = BeanUtils.instantiateClass(mappedClass);
         BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(instance);
         for (PropertyDescriptor pd : BeanUtils.getPropertyDescriptors(mappedClass)) {
@@ -94,7 +94,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         return type;
     }
     @SuppressWarnings("unchecked")
-    private <R> R mapToRecord(Class<R> mappedClass, Map<String, Object> map, String prefix) {
+    private <R> R mapToRecord(Class<R> mappedClass, RowEntry map, String prefix) {
         Constructor<R> constructor = BeanUtils.getResolvableConstructor(mappedClass);
         String[] parameterNames = BeanUtils.getParameterNames(constructor);
         int paramCount = constructor.getParameterCount();
@@ -114,7 +114,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
                 try {
                     PropertyDescriptor pd = new PropertyDescriptor(parameterName, mappedClass, parameterName, null);
                     Class<?> genericType = extractGenericType(pd.getReadMethod());
-                    List<Map<String, Object>> list = (List<Map<String, Object>>) map.get(parameterName);
+                    List<RowEntry> list = (List<RowEntry>) map.get(parameterName);
                     if (list!=null){
                         object = list.stream().map(it->map(genericType, it, propertyName))
                                 .toList();
@@ -151,7 +151,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
      * @param propertyType the type to convert the value to
      * @return the converted value or {@code null} if no matching value is found
      */
-    private Object resolvePropertyValue(Map<String, Object> map,
+    private Object resolvePropertyValue(RowEntry map,
                                 String propertyName, Class<?> propertyType) {
 
         // Try direct property name.
@@ -169,7 +169,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
             return typeConverter.convertIfNecessary(map.get(camelCase), propertyType);
         }
         // Look for nested properties (e.g. "account_balance_value" for property "account").
-        Map<String, Object> nested = getNestedMap(map, propertyName);
+        RowEntry nested = getNestedMap(map, propertyName);
         if (!nested.isEmpty()) {
             // recurse with *this* propertyName as the new prefix
             return map(propertyType, nested, propertyName);
@@ -177,7 +177,7 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
         return null;
     }
 
-    private static Map<String, Object> getNestedMap(Map<String, Object> map, String propertyName) {
+    private static RowEntry getNestedMap(RowEntry map, String propertyName) {
         Map<String, Object> nested = new HashMap<>();
         String nestedPrefix = propertyName + "_";
         for (Map.Entry<String, Object> entry : map.entrySet()) {
@@ -190,6 +190,6 @@ public record NestedMapper<T>(Class<T> mappedClass, MapperTypeConverter typeConv
                 nested.put(key, value);
             }
         }
-        return nested;
+        return RowEntry.of(map.rowNumber(), nested);
     }
 }

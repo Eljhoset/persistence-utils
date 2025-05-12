@@ -10,7 +10,6 @@ import org.springframework.lang.Nullable;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Map;
 
 public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConverter,
                                  TypeResolver typeResolver, @With String prefix) implements RowMapper<T> {
@@ -28,7 +27,7 @@ public record NestedRowMapper<T>(Class<T> mappedClass, TypeConverter typeConvert
 
     @Override
     public T mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
-        Map<String, Object> mapOfColumnValues = ResultSetUtils.extractColumnValues(rs);
+        RowEntry mapOfColumnValues = ResultSetUtils.extractColumnValues(rowNum, rs);
         MapperTypeConverter converter = typeConverter::convertIfNecessary;
         return NestedMapper.newInstance(mappedClass, converter, typeResolver).map(mapOfColumnValues);
     }

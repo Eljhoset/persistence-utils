@@ -39,7 +39,7 @@ class NestedMapperTest {
 
     static Stream<Arguments> rows() {
         return Stream.of(
-                Arguments.of(Named.of("Simple", Map.of(
+                Arguments.of(Named.of("Simple", RowEntry.of(1, Map.of(
                                 "id", 1L,
                                 "type", "WITHDRAWAL",
                                 "detail_product_id", 15L,
@@ -47,7 +47,7 @@ class NestedMapperTest {
                                 "detail_amount_value", BigDecimal.valueOf(100),
                                 "detail_amount_currency_id", 1,
                                 "detail_quantity", 10
-                        )),
+                        ))),
                         NestedMapper.newInstance(Simple.Header.class),
                         new Simple.Header(
                                 1L,
@@ -65,17 +65,17 @@ class NestedMapperTest {
                                 )
                         )
                 ),
-                Arguments.of(Named.of("Grouping",Map.of(
+                Arguments.of(Named.of("Grouping",RowEntry.of(1, Map.of(
                                 "id", 1L,
                                 "type", "WITHDRAWAL",
-                                "details", List.of(Map.<String, Object>of(
+                                "details", List.of(RowEntry.of(1, Map.<String, Object>of(
                                         "details_product_id", 15L,
                                         "details_product_department_name", "IT",
                                         "details_amount_value", BigDecimal.valueOf(100),
                                         "details_amount_currency_id", 1,
                                         "details_quantity", 10
-                                ))
-                        )),
+                                )))
+                        ))),
                         NestedMapper.newInstance(Groping.Header.class),
                         new Groping.Header(
                                 1L,
@@ -93,17 +93,17 @@ class NestedMapperTest {
                                 ))
                         )
                 ),
-                Arguments.of(Named.of("Nested Grouping",Map.of(
+                Arguments.of(Named.of("Nested Grouping",RowEntry.of(1, Map.of(
                                 "id", 1L,
                                 "type", "WITHDRAWAL",
-                                "details", List.of(Map.of(
+                                "details", List.of(RowEntry.of(1, Map.of(
                                         "details_product_id", 15L,
-                                        "details_product_departments", List.of(Map.<String, Object>of("details_product_departments_name", "IT")),
+                                        "details_product_departments", List.of(RowEntry.of(2, Map.<String, Object>of("details_product_departments_name", "IT"))),
                                         "details_amount_value", BigDecimal.valueOf(100),
                                         "details_amount_currency_id", 1,
                                         "details_quantity", 10
-                                ))
-                        )),
+                                )))
+                        ))),
                         NestedMapper.newInstance(NestedGroping.Header.class),
                         new NestedGroping.Header(
                                 1L,
@@ -126,7 +126,7 @@ class NestedMapperTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("rows")
-    void testMap(Map<String, Object> row, NestedMapper<?> rowMapper, Object expected) {
+    void testMap(RowEntry row, NestedMapper<?> rowMapper, Object expected) {
         Object actual = rowMapper.map(row);
         assertThat(actual).isEqualTo(expected);
     }
