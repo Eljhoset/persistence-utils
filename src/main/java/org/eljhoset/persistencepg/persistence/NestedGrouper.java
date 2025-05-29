@@ -20,47 +20,53 @@ class NestedGrouper {
             List<RowEntry> rows,
             Map<String, String> groupingRules
     ) {
-        // 1) Find the “root” grouping name (the one with no '_' in it)
-        Set<String> keys = groupingRules.keySet();
-        Optional<String> rootOpt = keys.stream()
-                .filter(k -> keys.stream().filter(p -> !p.equals(k)).noneMatch(p -> k.startsWith(p + "_")))
-                .findFirst();
+        // 1) figure out which rule-names are true “roots”
+        Set<String> keys     = groupingRules.keySet();
+        List<String> roots = keys.stream()
+                .filter(k -> keys.stream()
+                        .filter(p -> !p.equals(k))
+                        .noneMatch(p -> k.startsWith(p + "_")))
+                .toList();
 
-        // If there is no root rule, just return the rows unchanged
-        if (rootOpt.isEmpty()) {
+        if (roots.isEmpty()) {
+            // no grouping rules: just clone your rows
             return rows.stream()
-                    .map(entry -> new RowEntry(entry.rowNumber(), new HashMap<>(entry.row())))
+                    .map(e -> new RowEntry(e.rowNumber(), new HashMap<>(e.row())))
                     .toList();
         }
-        String rootName = rootOpt.get();
-        String rootProp = groupingRules.get(rootName);
 
-        // 2) Partition all rows by the root grouping column
-        Map<Object, List<RowEntry>> rootBuckets = rows.stream()
-                .collect(Collectors.groupingBy(e -> e.row().get(rootProp)));
+        // 2) group by the composite of all root grouping-columns
+        Map<List<Object>, List<RowEntry>> buckets = rows.stream()
+                .collect(Collectors.groupingBy(e ->
+                        roots.stream()
+                                .map(r -> e.row().get(groupingRules.get(r)))
+                                .toList()
+                ));
 
         List<RowEntry> result = new ArrayList<>();
 
-        // 3) For each root‐group:
-        for (List<RowEntry> bucket : rootBuckets.values()) {
+        // 3) for each unique combination…
+        for (List<RowEntry> bucket : buckets.values()) {
             RowEntry first = bucket.getFirst();
             Map<String, Object> sample = first.row();
-            Map<String, Object> rootMap = new HashMap<>();
+            Map<String, Object> out     = new HashMap<>();
 
-            // 3a) copy every field not belonging to "details_" (or deeper) into the root map
-            sample.entrySet().stream()
-                    .filter(e -> !e.getKey().startsWith(rootName + "_"))
-                    .forEach(e -> rootMap.put(e.getKey(), e.getValue()));
+            // 3a) copy any field that isn’t under any rootName_… prefix
+            sample.forEach((col, val) -> {
+                boolean isUnderAnyRoot = roots.stream()
+                        .anyMatch(r -> col.startsWith(r + "_"));
+                if (!isUnderAnyRoot) {
+                    out.put(col, val);
+                }
+            });
 
-            // 3b) build the "details" list
-            List<RowEntry> detailsList = buildLevel(
-                    bucket,                     // all rows for this root
-                    rootName,                   // the list we’re building now
-                    groupingRules
-            );
+            // 3b) for each root, build its nested list
+            for (String root : roots) {
+                List<RowEntry> nested = buildLevel(bucket, root, groupingRules);
+                out.put(root, nested);
+            }
 
-            rootMap.put(rootName, detailsList);
-            result.add(new RowEntry(first.rowNumber(), rootMap));
+            result.add(new RowEntry(first.rowNumber(), out));
         }
 
         return result;

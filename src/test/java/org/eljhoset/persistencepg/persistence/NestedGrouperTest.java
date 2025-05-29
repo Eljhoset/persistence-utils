@@ -44,6 +44,56 @@ class NestedGrouperTest {
                         )
                 ),
                 Arguments.of(
+                        Named.of("Group two root properties", List.of(
+                                RowEntry.of(1, Map.of(
+                                        "user_id",       1,
+                                        "accounts_id",  10, "accounts_name", "A",
+                                        "orders_id",   100, "orders_item",  "X"
+                                )),
+                                RowEntry.of(2, Map.of(
+                                        "user_id",       1,
+                                        "accounts_id",  11, "accounts_name", "B",
+                                        "orders_id",   100, "orders_item",  "X"
+                                )),
+                                RowEntry.of(3, Map.of(
+                                        "user_id",       1,
+                                        "accounts_id",  10, "accounts_name", "A",
+                                        "orders_id",   101, "orders_item",  "Y"
+                                )),
+                                RowEntry.of(4, Map.of(
+                                        "user_id",       2,
+                                        "accounts_id",  20, "accounts_name", "C",
+                                        "orders_id",   200, "orders_item",  "Z"
+                                ))
+                        )),
+                        Map.of(
+                                "accounts", "user_id",
+                                "orders",   "user_id"
+                        ),
+                        List.of(
+                                RowEntry.of(1, Map.of(
+                                        "user_id", 1,
+                                        "accounts", List.of(
+                                                RowEntry.of(1, Map.of("accounts_id", 10, "accounts_name", "A")),
+                                                RowEntry.of(2, Map.of("accounts_id", 11, "accounts_name", "B"))
+                                        ),
+                                        "orders", List.of(
+                                                RowEntry.of(1, Map.of("orders_id", 100, "orders_item", "X")),
+                                                RowEntry.of(3, Map.of("orders_id", 101, "orders_item", "Y"))
+                                        )
+                                )),
+                                RowEntry.of(4, Map.of(
+                                        "user_id", 2,
+                                        "accounts", List.of(
+                                                RowEntry.of(4, Map.of("accounts_id", 20, "accounts_name", "C"))
+                                        ),
+                                        "orders", List.of(
+                                                RowEntry.of(4, Map.of("orders_id", 200, "orders_item", "Z"))
+                                        )
+                                ))
+                        )
+                ),
+                Arguments.of(
                         Named.of("Simple Grouping", List.of(
                                 RowEntry.of(1, Map.of("id", 1, "amount", "100", "details_quantity", 1)),
                                 RowEntry.of(2, Map.of("id", 1, "amount", "100", "details_quantity", 2)),
