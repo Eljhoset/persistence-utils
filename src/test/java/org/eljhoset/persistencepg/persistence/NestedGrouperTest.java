@@ -27,6 +27,23 @@ class NestedGrouperTest {
                         )
                 ),
                 Arguments.of(
+                        Named.of("Group in nested property", List.of(
+                                RowEntry.of(1, Map.of("id", 1, "amount", "100", "holder_id", 1, "holder_name", "John", "holder_accounts_id", 1, "holder_accounts_name", "Account1")),
+                                RowEntry.of(2, Map.of("id", 1, "amount", "100", "holder_id", 1, "holder_name", "John", "holder_accounts_id", 2, "holder_accounts_name", "Account2")),
+                                RowEntry.of(3, Map.of("id", 2, "amount", "200", "holder_id", 2, "holder_name", "Jane", "holder_accounts_id", 1, "holder_accounts_name", "Account1"))
+                        )),
+                        Map.of("holder_accounts", "holder_id"),
+                        List.of(
+                                RowEntry.of(1, Map.of("id", 1, "amount", "100", "holder_id", 1, "holder_name", "John", "holder_accounts", List.of(
+                                        RowEntry.of(1, Map.of("holder_accounts_id", 1, "holder_accounts_name", "Account1")),
+                                        RowEntry.of(2, Map.of("holder_accounts_id", 2, "holder_accounts_name", "Account2"))
+                                ))),
+                                RowEntry.of(3, Map.of("id", 2, "amount", "200", "holder_id", 2, "holder_name", "Jane", "holder_accounts", List.of(
+                                        RowEntry.of(3, Map.of("holder_accounts_id", 1, "holder_accounts_name", "Account1"))
+                                )))
+                        )
+                ),
+                Arguments.of(
                         Named.of("Simple Grouping", List.of(
                                 RowEntry.of(1, Map.of("id", 1, "amount", "100", "details_quantity", 1)),
                                 RowEntry.of(2, Map.of("id", 1, "amount", "100", "details_quantity", 2)),

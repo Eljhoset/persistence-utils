@@ -21,8 +21,9 @@ class NestedGrouper {
             Map<String, String> groupingRules
     ) {
         // 1) Find the “root” grouping name (the one with no '_' in it)
-        Optional<String> rootOpt = groupingRules.keySet().stream()
-                .filter(k -> !k.contains("_"))
+        Set<String> keys = groupingRules.keySet();
+        Optional<String> rootOpt = keys.stream()
+                .filter(k -> keys.stream().filter(p -> !p.equals(k)).noneMatch(p -> k.startsWith(p + "_")))
                 .findFirst();
 
         // If there is no root rule, just return the rows unchanged
